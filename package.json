@@ -1,0 +1,22 @@
+{
+  "name": "tecrail",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "db:local": "wrangler d1 execute app_db --local --file=db/schema.sql",
+    "db:remote": "wrangler d1 execute app_db --remote --file=db/schema.sql",
+    "deploy": "wrangler deploy",
+    "seed:local": "wrangler d1 execute app_db --local --file=db/seed.sql"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250705.0",
+    "@types/bcryptjs": "^2.4.6",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.30.0"
+  }
+}

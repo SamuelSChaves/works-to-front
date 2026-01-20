@@ -1,0 +1,181 @@
+
+async function handleDbHealth(env: Env): Promise<Response> {
+  // Minimal query to validate the D1 binding without relying on real data.
+  const result = await env.DB.prepare('SELECT 1 AS ok').first<{ ok: number }>()
+  return Response.json({ ok: result?.ok === 1 })
+}
+
+async function handleLogin(request: Request, env: Env): Promise<Response> {
+  assertJwtSecret(env)
+
+  const payload = await readJson(request)
+  if (!payload) {
+    await logLoginAttempt(env, {
+      success: 0,
+      reason: 'invalid_payload',
+      ip: getClientIp(request),
+      userAgent: request.headers.get('user-agent')
+    })
+    return Response.json({ error: 'Dados invalidos.' }, { status: 400 })
+  }
+
+  const cs = String(payload.cs || '').trim()
+  const senha = String(payload.senha || '')
+
+  if (!cs || !senha) {
+    await logLoginAttempt(env, {
+      success: 0,
+      reason: 'missing_fields',
+      ip: getClientIp(request),
+      userAgent: request.headers.get('user-agent')
+    })
+    return Response.json({ error: 'Empresa, CS e senha sao obrigatorios.' }, { status: 400 })
+  }
+
+  const user = await env.DB
+    .prepare(
+      `SELECT u.*, c.status AS company_status
+       FROM tb_user u
+       LEFT JOIN tb_company c ON c.id = u.company_id
+       WHERE u.cs = ?`
+    )
+    .bind(cs)
+    .first<UserWithCompanyRow>()
+
+  if (!user) {
+    await logLoginAttempt(env, {
+      success: 0,
+      reason: 'user_not_found',
+      companyId: null,
+      userId: null,
+      cs,
+      ip: getClientIp(request),
+      userAgent: request.headers.get('user-agent')
+    })
+    return Response.json({ error: 'Credenciais invalidas.' }, { status: 401 })
+  }
+
+  const companyId = user.company_id
+
+  if (user.company_status !== 'ativo') {
+    await logLoginAttempt(env, {
+      success: 0,
+      reason: 'company_inactive',
+      companyId: user.company_id,
+      userId: user.id,
+      cs,
+      ip: getClientIp(request),
+      userAgent: request.headers.get('user-agent')
+    })
+    return Response.json({ error: 'Credenciais invalidas.' }, { status: 401 })
+  }
+
+  if (user.status !== 'ativo') {
+    await logLoginAttempt(env, {
+      success: 0,
+      reason: 'user_inactive',
+      companyId: user.company_id,
+      userId: user.id,
+      cs,
+      email: user.email,
+      ip: getClientIp(request),
+      userAgent: request.headers.get('user-agent')
+    })
+    return Response.json({ error: 'Credenciais invalidas.' }, { status: 401 })
+  }
+
+  const auth = await env.DB
+    .prepare(
+      'SELECT user_id, password_hash, last_login_at, failed_attempts, locked_until FROM tb_user_auth WHERE user_id = ?'
+    )
+    .bind(user.id)
+    .first<UserAuthRow>()
+
+  if (!auth) {
+    await logLoginAttempt(env, {
+      success: 0,
+      reason: 'auth_missing',
+      companyId,
+      userId: user.id,
+      cs,
+      email: user.email,
+      ip: getClientIp(request),
+      userAgent: request.headers.get('user-agent')
+    })
+    return Response.json({ error: 'Credenciais invalidas.' }, { status: 401 })
+  }
+
+  const now = new Date()
+  const lockedUntil = auth.locked_until ? new Date(auth.locked_until) : null
+  if (lockedUntil && lockedUntil.getTime() > now.getTime()) {
+    await logLoginAttempt(env, {
+      success: 0,
+      reason: 'account_locked',
+      companyId,
+      userId: user.id,
+      cs,
+      email: user.email,
+      ip: getClientIp(request),
+      userAgent: request.headers.get('user-agent')
+    })
+    return Response.json({ error: 'Conta bloqueada temporariamente.' }, { status: 423 })
+  }
+
+  const passwordOk = await bcrypt.compare(senha, auth.password_hash)
+  if (!passwordOk) {
+    const maxAttempts = parseInt(env.AUTH_MAX_ATTEMPTS || '', 10) || DEFAULT_MAX_ATTEMPTS
+    const lockMinutes = parseInt(env.AUTH_LOCK_MINUTES || '', 10) || DEFAULT_LOCK_MINUTES
+    const failedAttempts = (auth.failed_attempts || 0) + 1
+    const shouldLock = failedAttempts >= maxAttempts
+    const newLockedUntil = shouldLock
+      ? new Date(now.getTime() + lockMinutes * 60 * 1000).toISOString()
+      : null
+
+    await env.DB
+      .prepare('UPDATE tb_user_auth SET failed_attempts = ?, locked_until = ? WHERE user_id = ?')
+      .bind(failedAttempts, newLockedUntil, user.id)
+      .run()
+
+    await logLoginAttempt(env, {
+      success: 0,
+      reason: shouldLock ? 'account_locked' : 'invalid_password',
+      companyId,
+      userId: user.id,
+      cs,
+      email: user.email,
+      ip: getClientIp(request),
+      userAgent: request.headers.get('user-agent')
+    })
+
+    return Response.json({ error: 'Credenciais invalidas.' }, { status: 401 })
+  }
+
+  await env.DB
+    .prepare('UPDATE tb_user_auth SET failed_attempts = 0, locked_until = NULL, last_login_at = ? WHERE user_id = ?')
+    .bind(now.toISOString(), user.id)
+    .run()
+
+  await logLoginAttempt(env, {
+    success: 1,
+    reason: 'login_success',
+    companyId,
+    userId: user.id,
+    cs,
+    email: user.email,
+    ip: getClientIp(request),
+    userAgent: request.headers.get('user-agent')
+  })
+
+  const expMinutes = parseInt(env.JWT_EXP_MINUTES || '', 10) || DEFAULT_JWT_EXP_MINUTES
+  const token = await signJwt(
+    {
+      user_id: user.id,
+      company_id: companyId,
+      nome: user.nome,
+      cargo: user.cargo,
+      equipe: user.equipe
+    },
+    env.JWT_SECRET,
+    expMinutes
+  )
+

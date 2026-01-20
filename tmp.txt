@@ -1,0 +1,61 @@
+    })
+    return Response.json({ error: 'Empresa, CS e senha sao obrigatorios.' }, { status: 400 })
+  }
+
+  const user = await env.DB
+    .prepare(
+      `SELECT u.*, c.status AS company_status
+       FROM tb_user u
+       LEFT JOIN tb_company c ON c.id = u.company_id
+       WHERE u.cs = ?`
+    )
+    .bind(cs)
+    .first<UserWithCompanyRow>()
+
+  if (!user) {
+    await logLoginAttempt(env, {
+      success: 0,
+      reason: 'user_not_found',
+      companyId: null,
+      userId: null,
+      cs,
+      ip: getClientIp(request),
+      userAgent: request.headers.get('user-agent')
+    })
+    return Response.json({ error: 'Credenciais invalidas.' }, { status: 401 })
+  }
+
+  const companyId = user.company_id
+
+  if (user.company_status !== 'ativo') {
+    await logLoginAttempt(env, {
+      success: 0,
+      reason: 'company_inactive',
+      companyId: user.company_id,
+      userId: user.id,
+      cs,
+      ip: getClientIp(request),
+      userAgent: request.headers.get('user-agent')
+    })
+    return Response.json({ error: 'Credenciais invalidas.' }, { status: 401 })
+  }
+
+  if (user.status !== 'ativo') {
+    await logLoginAttempt(env, {
+      success: 0,
+      reason: 'user_inactive',
+      companyId: user.company_id,
+      userId: user.id,
+      cs,
+      email: user.email,
+      ip: getClientIp(request),
+      userAgent: request.headers.get('user-agent')
+    })
+    return Response.json({ error: 'Credenciais invalidas.' }, { status: 401 })
+  }
+
+  const auth = await env.DB
+    .prepare(
+      'SELECT user_id, password_hash, last_login_at, failed_attempts, locked_until FROM tb_user_auth WHERE user_id = ?'
+    )
+    .bind(user.id)

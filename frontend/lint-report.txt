@@ -1,0 +1,51 @@
+
+> frontend@0.0.0 lint
+> eslint .
+
+
+M:\DashBoardTO\TecRail\frontend\src\pages\Ativos.tsx
+  420:6  warning  React Hook useEffect has a missing dependency: 'navigate'. Either include it or remove the dependency array           react-hooks/exhaustive-deps
+  461:6  warning  React Hook useEffect has a missing dependency: 'navigate'. Either include it or remove the dependency array           react-hooks/exhaustive-deps
+  696:6  warning  React Hook useEffect has a missing dependency: 'fetchAtivoHistory'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+M:\DashBoardTO\TecRail\frontend\src\pages\Componentes.tsx
+  310:6  warning  React Hook useEffect has a missing dependency: 'fetchWithAuth'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+M:\DashBoardTO\TecRail\frontend\src\pages\ConfiguracaoAjustes.tsx
+  185:6  warning  React Hook useEffect has missing dependencies: 'loadConfigs' and 'loadHolidays'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+M:\DashBoardTO\TecRail\frontend\src\pages\ConfiguracaoPerfilAcesso.tsx
+  499:3   error    React Hook "useEffect" is called conditionally. React Hooks must be called in the exact same order in every component render  react-hooks/rules-of-hooks
+  510:3   error    React Hook "useEffect" is called conditionally. React Hooks must be called in the exact same order in every component render  react-hooks/rules-of-hooks
+  514:3   error    React Hook "useEffect" is called conditionally. React Hooks must be called in the exact same order in every component render  react-hooks/rules-of-hooks
+  528:3   error    React Hook "useEffect" is called conditionally. React Hooks must be called in the exact same order in every component render  react-hooks/rules-of-hooks
+  574:6   warning  React Hook useEffect has a missing dependency: 'navigate'. Either include it or remove the dependency array                   react-hooks/exhaustive-deps
+  576:3   error    React Hook "useEffect" is called conditionally. React Hooks must be called in the exact same order in every component render  react-hooks/rules-of-hooks
+  586:3   error    React Hook "useEffect" is called conditionally. React Hooks must be called in the exact same order in every component render  react-hooks/rules-of-hooks
+  631:6   warning  React Hook useEffect has a missing dependency: 'navigate'. Either include it or remove the dependency array                   react-hooks/exhaustive-deps
+  633:3   error    React Hook "useEffect" is called conditionally. React Hooks must be called in the exact same order in every component render  react-hooks/rules-of-hooks
+  675:6   warning  React Hook useEffect has a missing dependency: 'navigate'. Either include it or remove the dependency array                   react-hooks/exhaustive-deps
+  677:25  error    React Hook "useMemo" is called conditionally. React Hooks must be called in the exact same order in every component render    react-hooks/rules-of-hooks
+
+M:\DashBoardTO\TecRail\frontend\src\pages\Home.tsx
+  5:40  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+M:\DashBoardTO\TecRail\frontend\src\pages\OrdensServico.tsx
+  330:6  warning  React Hook useEffect has a missing dependency: 'navigate'. Either include it or remove the dependency array    react-hooks/exhaustive-deps
+  368:6  warning  React Hook useEffect has a missing dependency: 'navigate'. Either include it or remove the dependency array    react-hooks/exhaustive-deps
+  544:6  warning  React Hook useEffect has a missing dependency: 'openEditOs'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+M:\DashBoardTO\TecRail\frontend\src\pages\OrdensServicoScheduler.tsx
+  627:6  warning  React Hook useEffect has a missing dependency: 'selectedEquipeId'. Either include it or remove the dependency array     react-hooks/exhaustive-deps
+  660:6  warning  React Hook useEffect has a missing dependency: 'loadSchedulerConfig'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  713:6  warning  React Hook useEffect has a missing dependency: 'saveSchedulerConfig'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+M:\DashBoardTO\TecRail\frontend\src\router.tsx
+  12:7   error  Fast refresh only works when a file only exports components. Move your component(s) to a separate file  react-refresh/only-export-components
+  16:10  error  Fast refresh only works when a file only exports components. Move your component(s) to a separate file  react-refresh/only-export-components
+  25:10  error  Fast refresh only works when a file only exports components. Move your component(s) to a separate file  react-refresh/only-export-components
+  33:44  error  Unexpected any. Specify a different type                                                                @typescript-eslint/no-explicit-any
+  35:43  error  Unexpected any. Specify a different type                                                                @typescript-eslint/no-explicit-any
+
+✖ 28 problems (14 errors, 14 warnings)
+

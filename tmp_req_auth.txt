@@ -1,0 +1,86 @@
+  env: Env
+): Promise<Response> {
+  assertJwtSecret(env)
+  const auth = await requireAuth(request, env)
+  if (!auth) {
+    return Response.json({ error: 'Token invalido.' }, { status: 401 })
+  }
+
+  const url = new URL(request.url)
+  const osId = url.searchParams.get('os_id')
+  if (!osId) {
+    return Response.json({ error: 'os_id obrigatorio.' }, { status: 400 })
+  }
+
+  const result = await env.DB.prepare(
+    `SELECT id, company_id, order_service_id, action, before_data, after_data, changed_by_user_id, changed_by_name, created_at
+     FROM tb_order_service_history
+     WHERE company_id = ? AND order_service_id = ?
+     ORDER BY created_at DESC`
+  )
+    .bind(auth.company_id, osId)
+    .all<OrderServiceHistoryRow>()
+
+  return Response.json({ history: result.results })
+}
+
+async function insertProfilePermissions(
+  env: Env,
+  profileId: string,
+  permissions: Array<Record<string, unknown>>
+) {
+  for (const item of permissions) {
+    const screenId = String(item.screen_id || '').trim()
+    if (!screenId) continue
+    const leitura = item.leitura ? 1 : 0
+    const criacao = item.criacao ? 1 : 0
+    const edicao = item.edicao ? 1 : 0
+    const exclusao = item.exclusao ? 1 : 0
+    await env.DB.prepare(
+      `INSERT INTO tb_profile_permission (profile_id, screen_id, leitura, criacao, edicao, exclusao)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+      .bind(profileId, screenId, leitura, criacao, edicao, exclusao)
+      .run()
+  }
+}
+
+async function requireAuth(request: Request, env: Env): Promise<AuthPayload | null> {
+  const header = request.headers.get('authorization') || ''
+  const token = header.startsWith('Bearer ') ? header.slice(7).trim() : ''
+  if (!token) return null
+  const payload = await verifyJwt(token, env.JWT_SECRET)
+  if (!payload) return null
+  return payload
+}
+
+async function requirePermission(
+  env: Env,
+  auth: AuthPayload,
+  screenId: string,
+  action: PermissionAction
+): Promise<Response | null> {
+  const row = await env.DB.prepare(
+    `SELECT p.status AS profile_status,
+            perm.leitura AS leitura,
+            perm.criacao AS criacao,
+            perm.edicao AS edicao,
+            perm.exclusao AS exclusao
+     FROM tb_user u
+     LEFT JOIN tb_profile p ON p.id = u.profile_id
+     LEFT JOIN tb_profile_permission perm
+       ON perm.profile_id = u.profile_id AND perm.screen_id = ?
+     WHERE u.id = ? AND u.company_id = ?`
+  )
+    .bind(screenId, auth.user_id, auth.company_id)
+    .first<PermissionCheckRow>()
+
+  if (!row || row.profile_status !== 'ativo') {
+    return Response.json({ error: 'Acesso negado.' }, { status: 403 })
+  }
+
+  const allowed =
+    action === 'leitura'
+      ? row.leitura === 1
+      : action === 'criacao'
+        ? row.criacao === 1

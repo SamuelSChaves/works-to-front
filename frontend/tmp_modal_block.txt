@@ -1,0 +1,39 @@
+﻿      <Modal
+        title={modalTitle}
+        isOpen={modalOpen}
+        onClose={handleClose}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={handleClose}
+              style={{
+                padding: '10px 16px',
+                borderRadius: 10,
+                border: '1px solid #e2e8f0',
+                background: '#ffffff',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={!canSaveAction}
+              style={{
+                padding: '10px 16px',
+                borderRadius: 10,
+                border: 'none',
+                background: canSaveAction ? 'linear-gradient(90deg, #16a34a, #15803d)' : 'rgba(16, 163, 84, 0.4)',
+                color: '#ffffff',
+                fontWeight: 600,
+                cursor: canSaveAction ? 'pointer' : 'not-allowed'
+              }}
+            >
+              Salvar
+            </button>
+          </>
+        }
+      >
