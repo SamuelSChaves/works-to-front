@@ -501,6 +501,8 @@ export function Tarefas() {
       medicao: boolean
       criticidade: boolean
       active: boolean
+      sigla: string
+      id_sigla: string
     }[] = []
 
     taskRows.forEach((row, index) => {
@@ -552,7 +554,9 @@ export function Tarefas() {
           sub_sistema: subSistema,
           medicao: row.medicao === 'true',
           criticidade: row.criticidade === 'true',
-          active: row.active === 'true'
+          active: row.active === 'true',
+          sigla,
+          id_sigla: idSigla
         })
       }
     })
@@ -579,22 +583,24 @@ export function Tarefas() {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sigla,
-            id_sigla: idSigla,
-            tarefas: normalizedRows.map(row => ({
-              tarefa: row.tarefa,
-              codigo: row.codigo,
-              periodicidade: row.periodicidade,
-              medicao: row.medicao,
-              criticidade: row.criticidade,
-              active: row.active,
-              sistema: row.sistema,
-              sub_sistema: row.sub_sistema
-            }))
-          })
-        }
-      )
+            body: JSON.stringify({
+              sigla,
+              id_sigla: idSigla,
+              tarefas: normalizedRows.map(row => ({
+                tarefa: row.tarefa,
+                codigo: row.codigo,
+                periodicidade: row.periodicidade,
+                medicao: row.medicao,
+                criticidade: row.criticidade,
+                active: row.active,
+                sistema: row.sistema,
+                sub_sistema: row.sub_sistema,
+                sigla: row.sigla,
+                id_sigla: row.id_sigla
+              }))
+            })
+          }
+        )
       toast.success('Tarefas criadas com sucesso.')
       setModalOpen(false)
       setFormState(initialFormState)

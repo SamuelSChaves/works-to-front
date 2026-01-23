@@ -3651,6 +3651,8 @@ async function handleCreateTarefa(
     medicao: 0 | 1
     criticidade: 0 | 1
     active: 0 | 1
+    sigla: string
+    id_sigla: string
   }[] = []
   const seen = new Set<string>()
 
@@ -3661,6 +3663,8 @@ async function handleCreateTarefa(
     const periodicidadeRaw = Number(item.periodicidade ?? '')
     const sistema = String(item.sistema ?? '').trim()
     const subSistema = String(item.sub_sistema ?? '').trim()
+    const rowSigla = String(item.sigla ?? sigla).trim()
+    const rowIdSigla = String(item.id_sigla ?? idSigla).trim()
     if (!tarefa) {
       rowErrors.push('Descrição da tarefa é obrigatória.')
     }
@@ -3680,10 +3684,16 @@ async function handleCreateTarefa(
     if (!subSistema) {
       rowErrors.push('Sub sistema é obrigatório.')
     }
+    if (!rowSigla) {
+      rowErrors.push('Sigla é obrigatória.')
+    }
+    if (!rowIdSigla) {
+      rowErrors.push('Identificador da sigla é obrigatório.')
+    }
     if (rowErrors.length) {
       errors.push(`Linha ${index + 1}: ${rowErrors.join(' ')}`)
     } else {
-      const key = `${sigla}::${codigo}`
+      const key = `${rowSigla}::${codigo}`
       if (seen.has(key)) {
         errors.push(
           `Linha ${index + 1}: Já existem duas tarefas com a mesma sigla e código no lote.`
@@ -3698,7 +3708,9 @@ async function handleCreateTarefa(
           sub_sistema: subSistema,
           medicao: normalizeBooleanFlag(item.medicao, 0),
           criticidade: normalizeBooleanFlag(item.criticidade, 0),
-          active: normalizeBooleanFlag(item.active, 1)
+          active: normalizeBooleanFlag(item.active, 1),
+          sigla: rowSigla,
+          id_sigla: rowIdSigla
         })
       }
     }
@@ -3710,14 +3722,14 @@ async function handleCreateTarefa(
 
   for (let i = 0; i < normalizedRows.length; i++) {
     const row = normalizedRows[i]
-    const existing = await env.DB
-      .prepare(
-        `SELECT id
-         FROM tb_tarefas
-         WHERE company_id = ? AND sigla = ? AND codigo = ?`
-      )
-      .bind(auth.company_id, sigla, row.codigo)
-      .first<{ id: string }>()
+      const existing = await env.DB
+        .prepare(
+          `SELECT id
+           FROM tb_tarefas
+           WHERE company_id = ? AND sigla = ? AND codigo = ?`
+        )
+        .bind(auth.company_id, row.sigla, row.codigo)
+        .first<{ id: string }>()
 
     if (existing) {
       return Response.json(
@@ -3737,7 +3749,7 @@ async function handleCreateTarefa(
       const id = crypto.randomUUID()
       await env.DB
         .prepare(
-          `INSERT INTO tb_tarefas (
+           `INSERT INTO tb_tarefas (
              id,
              company_id,
              id_sigla,
@@ -3754,13 +3766,13 @@ async function handleCreateTarefa(
              updated_at,
              created_by,
              updated_by
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .bind(
           id,
           auth.company_id,
-          idSigla,
-          sigla,
+          row.id_sigla,
+          row.sigla,
           row.tarefa,
           row.medicao,
           row.criticidade,
