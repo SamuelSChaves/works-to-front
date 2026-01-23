@@ -1220,6 +1220,23 @@ export function ConfiguracaoPerfilAcesso() {
     updateUserForm(prev => ({ ...prev, [field]: value }))
   }
 
+  const updateEstruturaFormState = (
+    updater: (prev: EstruturaFormState) => EstruturaFormState
+  ) => {
+    if (editingEstrutura) {
+      setEditingEstrutura(updater(editingEstrutura))
+    } else {
+      setEstruturaDraft(updater(estruturaDraft))
+    }
+  }
+
+  const handleEstruturaFieldChange = (
+    field: keyof EstruturaFormState,
+    value: string
+  ) => {
+    updateEstruturaFormState(prev => ({ ...prev, [field]: value }))
+  }
+
   const validateForm = (isEdit: boolean) => {
     const errors: string[] = []
     const requiredFields = [
@@ -1934,21 +1951,20 @@ export function ConfiguracaoPerfilAcesso() {
             <div style={{ display: 'grid', gap: 6 }}>
               <label style={fieldLabelStyle}>Coordenação *</label>
               <input
-                value={formState.Coordenação}
-                onChange={event => {
-                  handleFormChange('Coordenação', event.target.value)
-                  handleFormChange('equipeAtual', '')
-                }}
+                value={estruturaFormState.Coordenação}
+                onChange={event =>
+                  handleEstruturaFieldChange('Coordenação', event.target.value)
+                }
                 placeholder={
                   estruturaCoordOptions.length
                     ? 'Digite ou escolha uma coordenação'
-                    : 'Digite uma coordenação para criar'
+                    : 'Carregando coordenações'
                 }
-                list={estruturaCoordOptions.length ? 'coord-options' : undefined}
+                list={estruturaCoordOptions.length ? 'estrutura-coord-options' : undefined}
                 style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid #e2e8f0' }}
               />
               {estruturaCoordOptions.length > 0 && (
-                <datalist id="coord-options">
+                <datalist id="estrutura-coord-options">
                   {estruturaCoordOptions.map(coord => (
                     <option key={coord} value={coord} />
                   ))}
@@ -1956,191 +1972,83 @@ export function ConfiguracaoPerfilAcesso() {
               )}
             </div>
             <div style={{ display: 'grid', gap: 6 }}>
-              <label style={fieldLabelStyle}>Equipe Atual *</label>
-              <select
-                value={formState.equipeAtual}
-                onChange={event => handleFormChange('equipeAtual', event.target.value)}
+              <label style={fieldLabelStyle}>Equipe *</label>
+              <input
+                value={estruturaFormState.equipe}
+                onChange={event => handleEstruturaFieldChange('equipe', event.target.value)}
+                placeholder="Nome da equipe"
                 style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid #e2e8f0' }}
-                disabled={!formState.Coordenação || equipeOptions.length === 0}
-              >
-                <option value="">
-                  {formState.Coordenação
-                    ? equipeOptions.length
-                      ? 'Selecione a equipe'
-                      : 'Nenhuma equipe ativa'
-                    : 'Selecione uma coordenação primeiro'}
-                </option>
-                {equipeOptions.map(team => (
-                  <option key={team} value={team}>
-                    {team}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
-          </div>
-          <div style={{ display: 'grid', gap: 6 }}>
-            <label style={fieldLabelStyle}>Equipe Aditiva</label>
-            <input
-              value={formState.equipeAditiva}
-              onChange={event => handleFormChange('equipeAditiva', event.target.value)}
-              style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid #e2e8f0' }}
-            />
-          </div>
-          <div style={{ display: 'grid', gap: 6 }}>
-            <label style={fieldLabelStyle}>Cargo *</label>
-            <input
-              value={formState.cargo}
-              onChange={event => handleFormChange('cargo', event.target.value)}
-              style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid #e2e8f0' }}
-            />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div style={{ display: 'grid', gap: 6 }}>
-              <label style={fieldLabelStyle}>Tipo Acesso *</label>
-              <select
-                value={formState.profileId}
-                onChange={event => handleFormChange('profileId', event.target.value)}
-                disabled={!hasActiveProfiles}
+              <label style={fieldLabelStyle}>CC *</label>
+              <input
+                value={estruturaFormState.cc}
+                onChange={event => handleEstruturaFieldChange('cc', event.target.value)}
+                placeholder="Centro de custo"
                 style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid #e2e8f0' }}
-              >
-                {hasActiveProfiles ? (
-                  <>
-                    <option value="">Selecione</option>
-                    {activeProfiles.map(profile => (
-                      <option key={profile.id} value={profile.id}>
-                        {profile.name}
-                      </option>
-                    ))}
-                  </>
-                ) : (
-                  <option value="">Nenhum perfil ativo</option>
-                )}
-              </select>
+              />
             </div>
             <div style={{ display: 'grid', gap: 6 }}>
-              <label style={fieldLabelStyle}>Status</label>
+              <label style={fieldLabelStyle}>Execução *</label>
               <select
-                value={formState.status}
+                value={estruturaFormState.execucao}
                 onChange={event =>
-                  handleFormChange(
-                    'status',
-                    event.target.value as UserFormState['status']
-                  )
+                  handleEstruturaFieldChange('execucao', event.target.value)
                 }
                 style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid #e2e8f0' }}
               >
-                <option value="Ativo">Ativo</option>
-                <option value="Inativo">Inativo</option>
+                <option value="Sim">Sim</option>
+                <option value="Nao">Não</option>
               </select>
             </div>
           </div>
+          <div style={{ display: 'grid', gap: 6 }}>
+            <label style={fieldLabelStyle}>Status *</label>
+            <select
+              value={estruturaFormState.status}
+              onChange={event =>
+                handleEstruturaFieldChange(
+                  'status',
+                  event.target.value as EstruturaFormState['status']
+                )
+              }
+              style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid #e2e8f0' }}
+            >
+              <option value="Ativo">Ativo</option>
+              <option value="Inativo">Inativo</option>
+              <option value="Excluido">Excluído</option>
+            </select>
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <input
-              value={`Criado em: ${formatDate(formState.createdAt)}`}
+              value={`Criado em: ${formatDate(estruturaFormState.createdAt)}`}
               readOnly
-              style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid #e2e8f0', background: '#ffffff' }}
+              style={{
+                padding: '10px 12px',
+                borderRadius: 10,
+                border: '1px solid #e2e8f0',
+                background: '#ffffff'
+              }}
             />
             <input
-              value={`Criado por: ${formState.createdBy}`}
+              value={`Criado por: ${estruturaFormState.createdBy}`}
               readOnly
-              style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid #e2e8f0', background: '#ffffff' }}
+              style={{
+                padding: '10px 12px',
+                borderRadius: 10,
+                border: '1px solid #e2e8f0',
+                background: '#ffffff'
+              }}
             />
           </div>
-          {formErrors.length > 0 && (
+          {estruturaFormErrors.length > 0 && (
             <div style={{ color: '#f87171', fontSize: 12 }}>
-              {formErrors.map(error => (
+              {estruturaFormErrors.map(error => (
                 <div key={error}>{error}</div>
               ))}
-            </div>
-          )}
-
-          {editingUser && (
-            <div
-              style={{
-                borderTop: '1px solid #e2e8f0',
-                paddingTop: 12,
-                display: 'grid',
-                gap: 8
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => setIsHistoryExpanded(state => !state)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                  background: 'transparent',
-                  border: 'none',
-                  padding: 0,
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                  color: '#0f172a'
-                }}
-              >
-                Histórico de alteração
-                <span
-                  style={{
-                    display: 'inline-block',
-                    transform: isHistoryExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                    transition: 'transform 0.2s',
-                    fontSize: 16
-                  }}
-                >
-                  {'>'}
-                </span>
-              </button>
-
-              {isHistoryExpanded && (
-                <div style={{ display: 'grid', gap: 8 }}>
-                  {historyLoading && (
-                    <div style={{ color: '#64748b', fontSize: 12 }}>
-                      Carregando historico...
-                    </div>
-                  )}
-                  {historyError && (
-                    <div style={{ color: '#f87171', fontSize: 12 }}>
-                      {historyError}
-                    </div>
-                  )}
-                  {!historyLoading &&
-                    !historyError &&
-                    (historyByUserId[editingUser.id]?.length ? (
-                      <div
-                        style={{
-                          display: 'grid',
-                          gap: 8,
-                          maxHeight: 220,
-                          overflowY: 'auto',
-                          paddingRight: 4
-                        }}
-                      >
-                        {historyByUserId[editingUser.id].map(item => (
-                          <div
-                            key={item.id}
-                            style={{
-                              padding: '10px 12px',
-                              borderRadius: 10,
-                              background: '#ffffff',
-                              border: '1px solid #e2e8f0'
-                            }}
-                          >
-                            <div style={{ fontWeight: 600 }}>{item.changes}</div>
-                            <div style={{ fontSize: 12, color: '#64748b' }}>
-                              Alterado dia {formatDate(item.created_at)} por{' '}
-                              {item.changed_by_name || 'Usuario'}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div style={{ color: '#94a3b8', fontSize: 12 }}>
-                        Nenhum historico encontrado.
-                      </div>
-                    ))}
-                </div>
-              )}
             </div>
           )}
         </div>

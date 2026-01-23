@@ -7,6 +7,8 @@ type ModalProps = {
   children: ReactNode
   footer?: ReactNode
   fullScreen?: boolean
+  width?: string
+  maxWidth?: string
 }
 
 export function Modal({
@@ -16,6 +18,9 @@ export function Modal({
   children,
   footer,
   fullScreen
+  ,
+  width = 'min(720px, 100%)',
+  maxWidth
 }: ModalProps) {
   if (!isOpen) return null
 
@@ -28,7 +33,8 @@ export function Modal({
         overflow: 'hidden'
       }
     : {
-        width: 'min(720px, 100%)',
+        width,
+        maxWidth,
         borderRadius: 18,
         padding: 24
       }

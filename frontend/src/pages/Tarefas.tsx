@@ -996,6 +996,8 @@ export function Tarefas() {
         title="Nova tarefa padrão"
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
+        width="min(1180px, 95vw)"
+        maxWidth="1400px"
       >
         <form
           onSubmit={handleCreateSubmit}
