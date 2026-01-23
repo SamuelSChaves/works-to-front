@@ -1,4 +1,3 @@
-#!/usr/bin/env pwsh
 $ErrorActionPreference = 'Stop'
 
 function CommitAndPush($context) {
@@ -15,7 +14,7 @@ function CommitAndPush($context) {
   git push origin master
 }
 
-$scriptRoot = Split-Path -LiteralPath $MyInvocation.MyCommand.Definition -Parent
+$scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Definition
 Push-Location $scriptRoot
 try {
   Write-Host 'Executando npm run front:build...'

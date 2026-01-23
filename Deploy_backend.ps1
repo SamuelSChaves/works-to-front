@@ -1,5 +1,3 @@
-#!/usr/bin/env pwsh >>>>>>> comando para start pwsh ./Deploy_backend
-
 $ErrorActionPreference = 'Stop'
 
 function CommitAndPush($context) {
@@ -16,11 +14,11 @@ function CommitAndPush($context) {
   git push origin master
 }
 
-$scriptRoot = Split-Path -LiteralPath $MyInvocation.MyCommand.Definition -Parent
+$scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Definition
 Push-Location $scriptRoot
 try {
   Write-Host "Aplicando schema + seed e publicando o backend..."
-  pwsh -ExecutionPolicy Bypass -File .\scripts\deploy-worker.ps1
+  powershell -ExecutionPolicy Bypass -File .\scripts\deploy-worker.ps1
   CommitAndPush 'Backend'
   Write-Host 'Sucesso: backend atualizado e deploy feito.'
 } finally {
