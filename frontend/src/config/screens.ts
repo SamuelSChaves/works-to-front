@@ -81,6 +81,22 @@ export const SCREEN_PERMISSIONS: ScreenPermissionConfig[] = [
     exclusao: false
   },
   {
+    id: 'os',
+    label: 'Painel de OS',
+    leitura: true,
+    criacao: true,
+    edicao: false,
+    exclusao: false
+  },
+  {
+    id: 'os-scheduler',
+    label: 'Scheduler',
+    leitura: true,
+    criacao: true,
+    edicao: true,
+    exclusao: false
+  },
+  {
     id: 'produtividade-rotograma',
     label: 'Rotograma',
     leitura: true,
@@ -153,7 +169,6 @@ export const SCREEN_PERMISSIONS: ScreenPermissionConfig[] = [
     exclusao: false
   }
 ]
-
 
 
 

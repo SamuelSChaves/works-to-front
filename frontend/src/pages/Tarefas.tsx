@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type ClipboardEvent,
+  type FormEvent
+} from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Modal } from '../components/Modal'
 import { toast } from 'sonner'
@@ -37,14 +45,17 @@ type SortKey = 'sigla' | 'tarefa'
 type FormState = {
   sigla: string
   id_sigla: string
+}
+
+type TaskRow = {
   tarefa: string
   codigo: string
   periodicidade: string
-  sub_sistema: string
   sistema: string
-  medicao: boolean
-  criticidade: boolean
-  active: boolean
+  sub_sistema: string
+  medicao: 'true' | 'false' | ''
+  criticidade: 'true' | 'false' | ''
+  active: 'true' | 'false' | ''
 }
 
 const PAGE_SIZE_OPTIONS = [10, 20, 40]
@@ -56,16 +67,10 @@ const initialFilters: Filters = {
 }
 const initialFormState: FormState = {
   sigla: '',
-  id_sigla: '',
-  tarefa: '',
-  codigo: '',
-  periodicidade: '7',
-  sub_sistema: '',
-  sistema: '',
-  medicao: true,
-  criticidade: false,
-  active: true
+  id_sigla: ''
 }
+
+const MAX_TASK_ROWS = 50
 
 const filtersCardStyle: CSSProperties = {
   borderRadius: 16,
@@ -149,6 +154,36 @@ function boolFromValue(value: unknown): boolean {
   )
 }
 
+function createEmptyTaskRow(): TaskRow {
+  return {
+    tarefa: '',
+    codigo: '',
+    periodicidade: '',
+    sistema: '',
+    sub_sistema: '',
+    medicao: 'true',
+    criticidade: 'false',
+    active: 'true'
+  }
+}
+
+function normalizeYesNoValue(value: string | null | undefined): 'true' | 'false' | '' {
+  const normalized = String(value ?? '').trim().toLowerCase()
+  if (!normalized) return ''
+  if (['sim', 's', '1', 'true'].includes(normalized)) {
+    return 'true'
+  }
+  if (['nao', 'não', 'n', '0', 'false'].includes(normalized)) {
+    return 'false'
+  }
+  return ''
+}
+
+const YES_NO_OPTIONS = [
+  { value: 'true', label: 'Sim' },
+  { value: 'false', label: 'Não' }
+]
+
 async function getApiErrorMessage(response: Response, fallback: string) {
   if (response.status === 403) {
     return 'Você não tem permissão para executar esta operação.'
@@ -172,6 +207,8 @@ export function Tarefas() {
   const [formState, setFormState] = useState<FormState>(initialFormState)
   const [formErrors, setFormErrors] = useState<string[]>([])
   const [creating, setCreating] = useState(false)
+  const [taskRows, setTaskRows] = useState<TaskRow[]>(() => [createEmptyTaskRow()])
+  const [gridError, setGridError] = useState<string | null>(null)
   const [permissions, setPermissions] = useState(() => getStoredPermissions())
   const [siglaOptions, setSiglaOptions] = useState<string[]>([])
 
@@ -297,6 +334,28 @@ export function Tarefas() {
   const infoEnd = Math.min(total, page * perPage)
 
   const canCreate = permissions?.tarefas?.criacao === true
+  const sistemaOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          tarefas
+            .map(tarefa => tarefa.sistema ?? '')
+            .filter(value => value)
+        )
+      ).sort((a, b) => a.localeCompare(b)),
+    [tarefas]
+  )
+  const subSistemaOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          tarefas
+            .map(tarefa => tarefa.sub_sistema ?? '')
+            .filter(value => value)
+        )
+      ).sort((a, b) => a.localeCompare(b)),
+    [tarefas]
+  )
 
   const handleSort = (key: SortKey) => {
     if (sort === key) {
@@ -324,14 +383,74 @@ export function Tarefas() {
     setPage(1)
   }
 
+  const handleTaskRowChange = (
+    index: number,
+    field: keyof TaskRow,
+    value: string
+  ) => {
+    setTaskRows(prev =>
+      prev.map((row, rowIndex) =>
+        rowIndex === index ? { ...row, [field]: value } : row
+      )
+    )
+    setGridError(null)
+  }
+
+  const addTaskRow = () => {
+    if (taskRows.length >= MAX_TASK_ROWS) {
+      setGridError(`Não é possível adicionar mais que ${MAX_TASK_ROWS} linhas.`)
+      return
+    }
+    setTaskRows(prev => [...prev, createEmptyTaskRow()])
+  }
+
+  const removeTaskRow = (index: number) => {
+    setTaskRows(prev => {
+      if (prev.length <= 1) {
+        return [createEmptyTaskRow()]
+      }
+      return prev.filter((_, rowIndex) => rowIndex !== index)
+    })
+  }
+
+  const handleGridPaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    const clipboard = event.clipboardData?.getData('text/plain')
+    if (!clipboard) return
+    event.preventDefault()
+    const rows = clipboard
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+    if (!rows.length) return
+    if (taskRows.length + rows.length > MAX_TASK_ROWS) {
+      setGridError(
+        `O limite de ${MAX_TASK_ROWS} linhas foi ultrapassado ao colar o conteúdo.`
+      )
+      return
+    }
+    const parsedRows: TaskRow[] = rows.map(line => {
+      const columns = line.split(/\t/)
+      return {
+        tarefa: columns[0]?.trim() ?? '',
+        codigo: columns[1]?.trim() ?? '',
+        periodicidade: columns[2]?.trim() ?? '',
+        sistema: columns[3]?.trim() ?? '',
+        sub_sistema: columns[4]?.trim() ?? '',
+        medicao: normalizeYesNoValue(columns[5]),
+        criticidade: normalizeYesNoValue(columns[6]),
+        active: normalizeYesNoValue(columns[7])
+      }
+    })
+    setTaskRows(prev => [...prev, ...parsedRows])
+    setGridError(null)
+  }
+
   const handleCreateSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setFormErrors([])
+    setGridError(null)
     const sigla = formState.sigla.trim()
-    const tarefa = formState.tarefa.trim()
-    const codigo = formState.codigo.trim()
     const idSigla = formState.id_sigla.trim() || sigla
-    const periodicidadeValor = Number(formState.periodicidade)
 
     const errors: string[] = []
     if (!sigla) {
@@ -340,22 +459,77 @@ export function Tarefas() {
     if (!idSigla) {
       errors.push('Identificador da sigla é obrigatório.')
     }
-    if (!tarefa) {
-      errors.push('Tarefa é obrigatória.')
+    if (taskRows.length === 0) {
+      errors.push('Adicione ao menos uma linha na grade antes de salvar.')
     }
-    if (!codigo) {
-      errors.push('Código da tarefa é obrigatório.')
-    }
-    if (!Number.isFinite(periodicidadeValor)) {
-      errors.push('Periodicidade inválida.')
-    } else {
-      const periodicidade = Math.trunc(periodicidadeValor)
-      if (periodicidade < 1 || periodicidade > 60) {
-        errors.push('Periodicidade precisa estar entre 1 e 60.')
+
+    const normalizedRows: {
+      tarefa: string
+      codigo: string
+      periodicidade: number
+      sistema: string
+      sub_sistema: string
+      medicao: boolean
+      criticidade: boolean
+      active: boolean
+    }[] = []
+
+    taskRows.forEach((row, index) => {
+      const rowErrors: string[] = []
+      const tarefa = row.tarefa.trim()
+      const codigo = row.codigo.trim()
+      const periodicidadeRaw = Number(row.periodicidade)
+      const sistema = row.sistema.trim()
+      const subSistema = row.sub_sistema.trim()
+      if (!tarefa) {
+        rowErrors.push('Descrição da tarefa é obrigatória.')
       }
-    }
-    if (tarefa && tarefa.length > 255) {
-      errors.push('A descrição não pode ultrapassar 255 caracteres.')
+      if (!codigo) {
+        rowErrors.push('Código interno é obrigatório.')
+      }
+      if (!Number.isFinite(periodicidadeRaw)) {
+        rowErrors.push('Periodicidade inválida.')
+      } else if (!Number.isInteger(periodicidadeRaw)) {
+        rowErrors.push('Periodicidade deve ser um número inteiro.')
+      } else if (periodicidadeRaw < 1 || periodicidadeRaw > 60) {
+        rowErrors.push('Periodicidade precisa estar entre 1 e 60.')
+      }
+      if (!sistema) {
+        rowErrors.push('Sistema é obrigatório.')
+      }
+      if (!subSistema) {
+        rowErrors.push('Sub sistema é obrigatório.')
+      }
+      if (row.medicao !== 'true' && row.medicao !== 'false') {
+        rowErrors.push('Medição precisa ser Sim ou Não.')
+      }
+      if (row.criticidade !== 'true' && row.criticidade !== 'false') {
+        rowErrors.push('Criticidade precisa ser Sim ou Não.')
+      }
+      if (row.active !== 'true' && row.active !== 'false') {
+        rowErrors.push('Ativa precisa ser Sim ou Não.')
+      }
+      if (tarefa && tarefa.length > 255) {
+        rowErrors.push('Descrição não pode ultrapassar 255 caracteres.')
+      }
+      if (rowErrors.length) {
+        errors.push(`Linha ${index + 1}: ${rowErrors.join(' ')}`)
+      } else {
+        normalizedRows.push({
+          tarefa,
+          codigo,
+          periodicidade: Math.trunc(periodicidadeRaw),
+          sistema,
+          sub_sistema: subSistema,
+          medicao: row.medicao === 'true',
+          criticidade: row.criticidade === 'true',
+          active: row.active === 'true'
+        })
+      }
+    })
+
+    if (!errors.length && normalizedRows.length === 0) {
+      errors.push('Adicione ao menos uma tarefa válida antes de salvar.')
     }
 
     if (errors.length) {
@@ -363,31 +537,40 @@ export function Tarefas() {
       return
     }
 
+    const confirmMessage = `Deseja criar ${normalizedRows.length} tarefas?`
+    if (!window.confirm(confirmMessage)) {
+      return
+    }
+
     try {
       setCreating(true)
       await fetchWithAuth(
         `${API_URL}/tarefas`,
-        'Erro ao criar tarefa.',
+        'Erro ao criar tarefas.',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             sigla,
             id_sigla: idSigla,
-            tarefa,
-            codigo,
-            periodicidade: Math.trunc(periodicidadeValor),
-            medicao: formState.medicao,
-            criticidade: formState.criticidade,
-            active: formState.active,
-            sistema: formState.sistema.trim() || null,
-            sub_sistema: formState.sub_sistema.trim() || null
+            tarefas: normalizedRows.map(row => ({
+              tarefa: row.tarefa,
+              codigo: row.codigo,
+              periodicidade: row.periodicidade,
+              medicao: row.medicao,
+              criticidade: row.criticidade,
+              active: row.active,
+              sistema: row.sistema,
+              sub_sistema: row.sub_sistema
+            }))
           })
         }
       )
-      toast.success('Tarefa criada com sucesso.')
+      toast.success('Tarefas criadas com sucesso.')
       setModalOpen(false)
       setFormState(initialFormState)
+      setTaskRows([createEmptyTaskRow()])
+      setGridError(null)
       if (page === 1) {
         await loadTasks(1)
       } else {
@@ -395,9 +578,7 @@ export function Tarefas() {
       }
     } catch (err) {
       const message =
-        err instanceof Error
-          ? err.message
-          : 'Não foi possível criar a tarefa.'
+        err instanceof Error ? err.message : 'Não foi possível criar tarefas.'
       setFormErrors([message])
     } finally {
       setCreating(false)
@@ -407,6 +588,8 @@ export function Tarefas() {
   const handleOpenModal = () => {
     setFormErrors([])
     setFormState(initialFormState)
+    setTaskRows([createEmptyTaskRow()])
+    setGridError(null)
     setModalOpen(true)
   }
 
@@ -796,174 +979,312 @@ export function Tarefas() {
               ))}
             </div>
           )}
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 600 }}>Sigla</span>
-            <input
-              type="text"
-              value={formState.sigla}
-              onChange={event =>
-                setFormState(prev => ({ ...prev, sigla: event.target.value }))
-              }
-              required
-              style={{ padding: 10, borderRadius: 10, border: '1px solid #d1d5db' }}
-            />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 600 }}>
-              Identificador da sigla (id_sigla)
-            </span>
-            <input
-              type="text"
-              value={formState.id_sigla}
-              onChange={event =>
-                setFormState(prev => ({ ...prev, id_sigla: event.target.value }))
-              }
-              placeholder="Mantenha o mesmo valor da sigla ou use um código"
-              style={{ padding: 10, borderRadius: 10, border: '1px solid #d1d5db' }}
-            />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 600 }}>Descrição da tarefa</span>
-            <input
-              type="text"
-              maxLength={255}
-              value={formState.tarefa}
-              onChange={event =>
-                setFormState(prev => ({ ...prev, tarefa: event.target.value }))
-              }
-              required
-              style={{ padding: 10, borderRadius: 10, border: '1px solid #d1d5db' }}
-            />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 600 }}>Código interno</span>
-            <input
-              type="text"
-              value={formState.codigo}
-              onChange={event =>
-                setFormState(prev => ({ ...prev, codigo: event.target.value }))
-              }
-              required
-              style={{ padding: 10, borderRadius: 10, border: '1px solid #d1d5db' }}
-            />
-          </label>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12 }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+              gap: 12
+            }}
+          >
             <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 600 }}>Periodicidade</span>
+              <span style={{ fontSize: 12, fontWeight: 600 }}>Sigla</span>
               <input
-                type="number"
-                min={1}
-                max={60}
-                value={formState.periodicidade}
+                type="text"
+                value={formState.sigla}
                 onChange={event =>
-                  setFormState(prev => ({
-                    ...prev,
-                    periodicidade: event.target.value
-                  }))
+                  setFormState(prev => ({ ...prev, sigla: event.target.value }))
                 }
                 required
-                style={{ padding: 10, borderRadius: 10, border: '1px solid #d1d5db' }}
+                style={{
+                  padding: 10,
+                  borderRadius: 10,
+                  border: '1px solid #d1d5db'
+                }}
               />
             </label>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 600 }}>Sistema</span>
+              <span style={{ fontSize: 12, fontWeight: 600 }}>
+                Identificador da sigla (id_sigla)
+              </span>
               <input
                 type="text"
-                value={formState.sistema}
+                value={formState.id_sigla}
                 onChange={event =>
-                  setFormState(prev => ({ ...prev, sistema: event.target.value }))
+                  setFormState(prev => ({ ...prev, id_sigla: event.target.value }))
                 }
-                style={{ padding: 10, borderRadius: 10, border: '1px solid #d1d5db' }}
-              />
-            </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 600 }}>Sub sistema</span>
-              <input
-                type="text"
-                value={formState.sub_sistema}
-                onChange={event =>
-                  setFormState(prev => ({
-                    ...prev,
-                    sub_sistema: event.target.value
-                  }))
-                }
-                style={{ padding: 10, borderRadius: 10, border: '1px solid #d1d5db' }}
+                placeholder="Mantenha o mesmo valor da sigla ou use um código"
+                style={{
+                  padding: 10,
+                  borderRadius: 10,
+                  border: '1px solid #d1d5db'
+                }}
               />
             </label>
           </div>
           <div
             style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: 12,
-              marginTop: 6
+              borderRadius: 12,
+              border: '1px dashed #94a3b8',
+              padding: 12,
+              background: '#f8fafc'
+            }}
+            onPaste={handleGridPaste}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 8,
+                marginBottom: 8
+              }}
+            >
+              <strong>Grade de tarefas</strong>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span style={{ fontSize: 12, color: '#475569' }}>
+                  Cole do Excel (até {MAX_TASK_ROWS} linhas)
+                </span>
+                <button
+                  type="button"
+                  onClick={addTaskRow}
+                  disabled={taskRows.length >= MAX_TASK_ROWS}
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: 8,
+                    border: '1px solid #d1d5db',
+                    background: '#ffffff',
+                    cursor:
+                      taskRows.length >= MAX_TASK_ROWS ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  Adicionar linha
+                </button>
+              </div>
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table
+                style={{
+                  width: '100%',
+                  borderCollapse: 'collapse',
+                  minWidth: 640
+                }}
+              >
+                <thead>
+                  <tr>
+                    <th style={tableHeaderCellStyle}>Descrição da tarefa</th>
+                    <th style={tableHeaderCellStyle}>Código interno</th>
+                    <th style={tableHeaderCellStyle}>Periodicidade</th>
+                    <th style={tableHeaderCellStyle}>Sistema</th>
+                    <th style={tableHeaderCellStyle}>Sub sistema</th>
+                    <th style={tableHeaderCellStyle}>Medição</th>
+                    <th style={tableHeaderCellStyle}>Criticidade</th>
+                    <th style={tableHeaderCellStyle}>Ativa</th>
+                    <th style={tableHeaderCellStyle}>Remover</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {taskRows.map((row, index) => (
+                    <tr key={`task-row-${index}`} style={{ borderTop: '1px solid #e2e8f0' }}>
+                      <td style={tableBodyCellStyle}>
+                        <input
+                          type="text"
+                          value={row.tarefa}
+                          onChange={event =>
+                            handleTaskRowChange(index, 'tarefa', event.target.value)
+                          }
+                          placeholder="Descrição"
+                          style={{
+                            width: '100%',
+                            padding: 6,
+                            borderRadius: 6,
+                            border: '1px solid #d1d5db'
+                          }}
+                        />
+                      </td>
+                      <td style={tableBodyCellStyle}>
+                        <input
+                          type="text"
+                          value={row.codigo}
+                          onChange={event =>
+                            handleTaskRowChange(index, 'codigo', event.target.value)
+                          }
+                          placeholder="Código"
+                          style={{
+                            width: '100%',
+                            padding: 6,
+                            borderRadius: 6,
+                            border: '1px solid #d1d5db'
+                          }}
+                        />
+                      </td>
+                      <td style={tableBodyCellStyle}>
+                        <input
+                          type="number"
+                          min={1}
+                          max={60}
+                          value={row.periodicidade}
+                          onChange={event =>
+                            handleTaskRowChange(index, 'periodicidade', event.target.value)
+                          }
+                          placeholder="1-60"
+                          style={{
+                            width: '100%',
+                            padding: 6,
+                            borderRadius: 6,
+                            border: '1px solid #d1d5db'
+                          }}
+                        />
+                      </td>
+                      <td style={tableBodyCellStyle}>
+                        <input
+                          type="text"
+                          list={sistemaOptions.length ? 'sistema-options' : undefined}
+                          value={row.sistema}
+                          onChange={event =>
+                            handleTaskRowChange(index, 'sistema', event.target.value)
+                          }
+                          placeholder="Sistema"
+                          style={{
+                            width: '100%',
+                            padding: 6,
+                            borderRadius: 6,
+                            border: '1px solid #d1d5db'
+                          }}
+                        />
+                        {sistemaOptions.length > 0 && (
+                          <datalist id="sistema-options">
+                            {sistemaOptions.map(option => (
+                              <option key={`sistema-${option}`} value={option} />
+                            ))}
+                          </datalist>
+                        )}
+                      </td>
+                      <td style={tableBodyCellStyle}>
+                        <input
+                          type="text"
+                          list={subSistemaOptions.length ? 'subsistema-options' : undefined}
+                          value={row.sub_sistema}
+                          onChange={event =>
+                            handleTaskRowChange(index, 'sub_sistema', event.target.value)
+                          }
+                          placeholder="Sub sistema"
+                          style={{
+                            width: '100%',
+                            padding: 6,
+                            borderRadius: 6,
+                            border: '1px solid #d1d5db'
+                          }}
+                        />
+                        {subSistemaOptions.length > 0 && (
+                          <datalist id="subsistema-options">
+                            {subSistemaOptions.map(option => (
+                              <option key={`sub-${option}`} value={option} />
+                            ))}
+                          </datalist>
+                        )}
+                      </td>
+                      <td style={tableBodyCellStyle}>
+                        <select
+                          value={row.medicao}
+                          onChange={event =>
+                            handleTaskRowChange(index, 'medicao', event.target.value)
+                          }
+                          style={{
+                            width: '100%',
+                            padding: 6,
+                            borderRadius: 6,
+                            border: '1px solid #d1d5db'
+                          }}
+                        >
+                          {YES_NO_OPTIONS.map(option => (
+                            <option key={`medicao-${option.value}`} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td style={tableBodyCellStyle}>
+                        <select
+                          value={row.criticidade}
+                          onChange={event =>
+                            handleTaskRowChange(index, 'criticidade', event.target.value)
+                          }
+                          style={{
+                            width: '100%',
+                            padding: 6,
+                            borderRadius: 6,
+                            border: '1px solid #d1d5db'
+                          }}
+                        >
+                          {YES_NO_OPTIONS.map(option => (
+                            <option key={`criticidade-${option.value}`} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td style={tableBodyCellStyle}>
+                        <select
+                          value={row.active}
+                          onChange={event =>
+                            handleTaskRowChange(index, 'active', event.target.value)
+                          }
+                          style={{
+                            width: '100%',
+                            padding: 6,
+                            borderRadius: 6,
+                            border: '1px solid #d1d5db'
+                          }}
+                        >
+                          {YES_NO_OPTIONS.map(option => (
+                            <option key={`active-${option.value}`} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td style={tableBodyCellStyle}>
+                        <button
+                          type="button"
+                          onClick={() => removeTaskRow(index)}
+                          style={{
+                            padding: '6px 10px',
+                            borderRadius: 8,
+                            border: '1px solid #d1d5db',
+                            background: '#ffffff',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Remover
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {gridError && (
+              <div style={{ color: '#b91c1c', fontSize: 12, marginTop: 8 }}>
+                {gridError}
+              </div>
+            )}
+          </div>
+          <button
+            type="submit"
+            disabled={creating}
+            style={{
+              padding: '10px 16px',
+              borderRadius: 10,
+              border: 'none',
+              background: '#1d4ed8',
+              color: '#ffffff',
+              fontWeight: 600,
+              cursor: creating ? 'not-allowed' : 'pointer'
             }}
           >
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <input
-                type="checkbox"
-                checked={formState.medicao}
-                onChange={event =>
-                  setFormState(prev => ({ ...prev, medicao: event.target.checked }))
-                }
-              />
-              Medição
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <input
-                type="checkbox"
-                checked={formState.criticidade}
-                onChange={event =>
-                  setFormState(prev => ({
-                    ...prev,
-                    criticidade: event.target.checked
-                  }))
-                }
-              />
-              Criticidade
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <input
-                type="checkbox"
-                checked={formState.active}
-                onChange={event =>
-                  setFormState(prev => ({ ...prev, active: event.target.checked }))
-                }
-              />
-              Ativa
-            </label>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-            <button
-              type="button"
-              onClick={() => setModalOpen(false)}
-              style={{
-                borderRadius: 10,
-                padding: '8px 14px',
-                border: '1px solid #475569',
-                background: 'transparent',
-                cursor: 'pointer'
-              }}
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={creating}
-              style={{
-                borderRadius: 10,
-                padding: '8px 14px',
-                border: 'none',
-                background: '#2563eb',
-                color: '#ffffff',
-                fontWeight: 600,
-                cursor: 'pointer',
-                opacity: creating ? 0.6 : 1
-              }}
-            >
-              {creating ? 'Salvando...' : 'Criar tarefa'}
-            </button>
-          </div>
+            {creating ? 'Salvando...' : 'Salvar'}
+          </button>
         </form>
       </Modal>
     </div>

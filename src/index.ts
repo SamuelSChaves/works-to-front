@@ -3591,6 +3591,8 @@ async function handleListTarefas(
   })
 }
 
+const MAX_TASK_BATCH = 50
+
 async function handleCreateTarefa(
   request: Request,
   env: Env
@@ -3610,116 +3612,177 @@ async function handleCreateTarefa(
   }
 
   const sigla = String(payload.sigla || '').trim()
-  const tarefa = String(payload.tarefa || '').trim()
-  const codigo = String(payload.codigo || '').trim()
-  if (!sigla || !tarefa) {
-    return Response.json(
-      { error: 'Sigla e tarefa sao obrigatorios.' },
-      { status: 400 }
-    )
+  if (!sigla) {
+    return Response.json({ error: 'Sigla é obrigatória.' }, { status: 400 })
   }
-  if (!codigo) {
-    return Response.json(
-      { error: 'Codigo da tarefa e obrigatorio.' },
-      { status: 400 }
-    )
-  }
-  if (tarefa.length > 255) {
-    return Response.json(
-      { error: 'A descricao da tarefa nao pode ultrapassar 255 caracteres.' },
-      { status: 400 }
-    )
-  }
-
-  const periodicidadeRaw = Number(payload.periodicidade ?? '')
-  if (!Number.isFinite(periodicidadeRaw)) {
-    return Response.json(
-      { error: 'Periodicidade invalida.' },
-      { status: 400 }
-    )
-  }
-  const periodicidade = Math.trunc(periodicidadeRaw)
-  if (periodicidade < 1 || periodicidade > 60) {
-    return Response.json(
-      { error: 'Periodicidade deve estar entre 1 e 60.' },
-      { status: 400 }
-    )
-  }
-
   const idSigla = String(payload.id_sigla || sigla).trim()
   if (!idSigla) {
     return Response.json(
-      { error: 'Identificador da sigla e obrigatorio.' },
+      { error: 'Identificador da sigla é obrigatório.' },
       { status: 400 }
     )
   }
 
-  const existing = await env.DB
-    .prepare(
-      `SELECT id
-       FROM tb_tarefas
-       WHERE company_id = ? AND sigla = ? AND codigo = ?`
-    )
-    .bind(auth.company_id, sigla, codigo)
-    .first<{ id: string }>()
+  const tarefasPayload = Array.isArray(payload.tarefas) && payload.tarefas.length
+    ? payload.tarefas
+    : [payload]
 
-  if (existing) {
+  if (!tarefasPayload.length) {
     return Response.json(
-      { error: 'Ja existe uma tarefa com essa sigla e codigo.' },
-      { status: 409 }
+      { error: 'Nenhuma tarefa foi enviada para criação.' },
+      { status: 400 }
     )
   }
 
-  const medicao = normalizeBooleanFlag(payload.medicao, 0)
-  const criticidade = normalizeBooleanFlag(payload.criticidade, 0)
-  const active = normalizeBooleanFlag(payload.active, 1)
-  const sistema = normalizeOptionalString(payload.sistema)
-  const subSistema = normalizeOptionalString(payload.sub_sistema)
+  if (tarefasPayload.length > MAX_TASK_BATCH) {
+    return Response.json(
+      { error: `O lote pode conter no máximo ${MAX_TASK_BATCH} tarefas.` },
+      { status: 400 }
+    )
+  }
+
+  const errors: string[] = []
+  const normalizedRows: {
+    tarefa: string
+    codigo: string
+    periodicidade: number
+    sistema: string
+    sub_sistema: string
+    medicao: 0 | 1
+    criticidade: 0 | 1
+    active: 0 | 1
+  }[] = []
+  const seen = new Set<string>()
+
+  tarefasPayload.forEach((item, index) => {
+    const rowErrors: string[] = []
+    const tarefa = String(item.tarefa ?? '').trim()
+    const codigo = String(item.codigo ?? '').trim()
+    const periodicidadeRaw = Number(item.periodicidade ?? '')
+    const sistema = String(item.sistema ?? '').trim()
+    const subSistema = String(item.sub_sistema ?? '').trim()
+    if (!tarefa) {
+      rowErrors.push('Descrição da tarefa é obrigatória.')
+    }
+    if (!codigo) {
+      rowErrors.push('Código interno é obrigatório.')
+    }
+    if (!Number.isFinite(periodicidadeRaw)) {
+      rowErrors.push('Periodicidade inválida.')
+    } else if (!Number.isInteger(periodicidadeRaw)) {
+      rowErrors.push('Periodicidade deve ser um número inteiro.')
+    } else if (periodicidadeRaw < 1 || periodicidadeRaw > 60) {
+      rowErrors.push('Periodicidade precisa estar entre 1 e 60.')
+    }
+    if (!sistema) {
+      rowErrors.push('Sistema é obrigatório.')
+    }
+    if (!subSistema) {
+      rowErrors.push('Sub sistema é obrigatório.')
+    }
+    if (rowErrors.length) {
+      errors.push(`Linha ${index + 1}: ${rowErrors.join(' ')}`)
+    } else {
+      const key = `${sigla}::${codigo}`
+      if (seen.has(key)) {
+        errors.push(
+          `Linha ${index + 1}: Já existem duas tarefas com a mesma sigla e código no lote.`
+        )
+      } else {
+        seen.add(key)
+        normalizedRows.push({
+          tarefa,
+          codigo,
+          periodicidade: Math.trunc(periodicidadeRaw),
+          sistema,
+          sub_sistema: subSistema,
+          medicao: normalizeBooleanFlag(item.medicao, 0),
+          criticidade: normalizeBooleanFlag(item.criticidade, 0),
+          active: normalizeBooleanFlag(item.active, 1)
+        })
+      }
+    }
+  })
+
+  if (errors.length) {
+    return Response.json({ error: errors.join(' ') }, { status: 400 })
+  }
+
+  for (let i = 0; i < normalizedRows.length; i++) {
+    const row = normalizedRows[i]
+    const existing = await env.DB
+      .prepare(
+        `SELECT id
+         FROM tb_tarefas
+         WHERE company_id = ? AND sigla = ? AND codigo = ?`
+      )
+      .bind(auth.company_id, sigla, row.codigo)
+      .first<{ id: string }>()
+
+    if (existing) {
+      return Response.json(
+        {
+          error: `Linha ${i + 1}: Já existe uma tarefa com essa sigla e código.`
+        },
+        { status: 409 }
+      )
+    }
+  }
+
   const now = new Date().toISOString()
-  const id = crypto.randomUUID()
 
-  await env.DB
-    .prepare(
-      `INSERT INTO tb_tarefas (
-         id,
-         company_id,
-         id_sigla,
-         sigla,
-         tarefa,
-         medicao,
-         criticidade,
-         periodicidade,
-         sub_sistema,
-         sistema,
-         codigo,
-         active,
-         created_at,
-         updated_at,
-         created_by,
-         updated_by
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .bind(
-      id,
-      auth.company_id,
-      idSigla,
-      sigla,
-      tarefa,
-      medicao,
-      criticidade,
-      periodicidade,
-      subSistema,
-      sistema,
-      codigo,
-      active,
-      now,
-      now,
-      auth.user_id,
-      auth.user_id
-    )
-    .run()
+  await env.DB.prepare('BEGIN').run()
+  try {
+    for (const row of normalizedRows) {
+      const id = crypto.randomUUID()
+      await env.DB
+        .prepare(
+          `INSERT INTO tb_tarefas (
+             id,
+             company_id,
+             id_sigla,
+             sigla,
+             tarefa,
+             medicao,
+             criticidade,
+             periodicidade,
+             sub_sistema,
+             sistema,
+             codigo,
+             active,
+             created_at,
+             updated_at,
+             created_by,
+             updated_by
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          id,
+          auth.company_id,
+          idSigla,
+          sigla,
+          row.tarefa,
+          row.medicao,
+          row.criticidade,
+          row.periodicidade,
+          row.sub_sistema,
+          row.sistema,
+          row.codigo,
+          row.active,
+          now,
+          now,
+          auth.user_id,
+          auth.user_id
+        )
+        .run()
+    }
+    await env.DB.prepare('COMMIT').run()
+  } catch (err) {
+    await env.DB.prepare('ROLLBACK').run()
+    throw err
+  }
 
-  return Response.json({ ok: true, id })
+  return Response.json({ ok: true, created: normalizedRows.length })
 }
 
 async function handleUpdateTarefa(

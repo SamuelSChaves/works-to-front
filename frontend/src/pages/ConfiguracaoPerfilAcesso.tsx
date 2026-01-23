@@ -2471,11 +2471,15 @@ export function ConfiguracaoPerfilAcesso() {
             </div>
             <div style={{ display: 'grid', gap: 6 }}>
               <label style={fieldLabelStyle}>Escala *</label>
-              <input
+              <select
                 value={formState.escala}
                 onChange={event => handleFormChange('escala', event.target.value)}
                 style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid #e2e8f0' }}
-              />
+              >
+                <option value="">Selecione</option>
+                <option value="ADM">ADM</option>
+                <option value="6x2">6x2</option>
+              </select>
             </div>
           </div>
 
@@ -2521,24 +2525,29 @@ export function ConfiguracaoPerfilAcesso() {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div style={{ display: 'grid', gap: 6 }}>
-              <label style={fieldLabelStyle}>Coordenação *</label>
-              <select
-                value={formState.Coordenação}
-                onChange={event => handleFormChange('Coordenação', event.target.value)}
-                style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid #e2e8f0' }}
-              >
-                <option value="">
-                  {estruturaCoordOptions.length
-                    ? 'Selecione uma coordenação'
-                    : 'Carregando coordenação'}
-                </option>
+            <label style={fieldLabelStyle}>Coordenação *</label>
+            <input
+              value={formState.Coordenação}
+              onChange={event => {
+                handleFormChange('Coordenação', event.target.value)
+                handleFormChange('equipeAtual', '')
+              }}
+              placeholder={
+                estruturaCoordOptions.length
+                  ? 'Digite ou escolha uma coordenação'
+                  : 'Carregando coordenação'
+              }
+              list={estruturaCoordOptions.length ? 'coord-options-perfil' : undefined}
+              style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid #e2e8f0' }}
+            />
+            {estruturaCoordOptions.length > 0 && (
+              <datalist id="coord-options-perfil">
                 {estruturaCoordOptions.map(coord => (
-                  <option key={coord} value={coord}>
-                    {coord}
-                  </option>
+                  <option key={coord} value={coord} />
                 ))}
-              </select>
-            </div>
+              </datalist>
+            )}
+          </div>
             <div style={{ display: 'grid', gap: 6 }}>
               <label style={fieldLabelStyle}>Equipe *</label>
               <select
