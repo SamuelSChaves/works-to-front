@@ -145,6 +145,29 @@ const paginationButtonStyle: CSSProperties = {
   cursor: 'pointer'
 }
 
+const modalGridStyle: CSSProperties = {
+  width: '100%',
+  borderRadius: 12,
+  border: '1px dashed #94a3b8',
+  padding: 12,
+  background: '#f8fafc',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12
+}
+
+const modalGridScrollStyle: CSSProperties = {
+  overflowY: 'auto',
+  maxHeight: '360px',
+  minHeight: '180px'
+}
+
+const modalGridTableStyle: CSSProperties = {
+  width: '100%',
+  borderCollapse: 'collapse',
+  minWidth: 1100
+}
+
 function boolFromValue(value: unknown): boolean {
   return (
     value === true ||
@@ -422,6 +445,12 @@ export function Tarefas() {
       .map(line => line.trim())
       .filter(line => line.length > 0)
     if (!rows.length) return
+    if (rows.length > MAX_TASK_ROWS) {
+      setGridError(
+        `O limite de ${MAX_TASK_ROWS} linhas por colagem foi ultrapassado.`
+      )
+      return
+    }
     if (taskRows.length + rows.length > MAX_TASK_ROWS) {
       setGridError(
         `O limite de ${MAX_TASK_ROWS} linhas foi ultrapassado ao colar o conteúdo.`
@@ -509,8 +538,8 @@ export function Tarefas() {
       if (row.active !== 'true' && row.active !== 'false') {
         rowErrors.push('Ativa precisa ser Sim ou Não.')
       }
-      if (tarefa && tarefa.length > 255) {
-        rowErrors.push('Descrição não pode ultrapassar 255 caracteres.')
+      if (tarefa && tarefa.length > 260) {
+        rowErrors.push('Descrição não pode ultrapassar 260 caracteres.')
       }
       if (rowErrors.length) {
         errors.push(`Linha ${index + 1}: ${rowErrors.join(' ')}`)
@@ -970,7 +999,15 @@ export function Tarefas() {
       >
         <form
           onSubmit={handleCreateSubmit}
-          style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+          style={{
+            width: '100%',
+            maxHeight: '80vh',
+            overflowY: 'auto',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 18,
+            alignItems: 'center'
+          }}
         >
           {formErrors.length > 0 && (
             <div style={{ color: '#f87171', fontSize: 12 }}>
@@ -981,6 +1018,7 @@ export function Tarefas() {
           )}
           <div
             style={{
+              width: '100%',
               display: 'grid',
               gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
               gap: 12
@@ -1021,15 +1059,7 @@ export function Tarefas() {
               />
             </label>
           </div>
-          <div
-            style={{
-              borderRadius: 12,
-              border: '1px dashed #94a3b8',
-              padding: 12,
-              background: '#f8fafc'
-            }}
-            onPaste={handleGridPaste}
-          >
+          <div style={modalGridStyle} onPaste={handleGridPaste}>
             <div
               style={{
                 display: 'flex',
@@ -1043,7 +1073,7 @@ export function Tarefas() {
               <strong>Grade de tarefas</strong>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <span style={{ fontSize: 12, color: '#475569' }}>
-                  Cole do Excel (até {MAX_TASK_ROWS} linhas)
+                  Cole do Excel (até {MAX_TASK_ROWS} linhas por vez)
                 </span>
                 <button
                   type="button"
@@ -1062,212 +1092,216 @@ export function Tarefas() {
                 </button>
               </div>
             </div>
-            <div style={{ overflowX: 'auto' }}>
-              <table
-                style={{
-                  width: '100%',
-                  borderCollapse: 'collapse',
-                  minWidth: 640
-                }}
-              >
-                <thead>
-                  <tr>
-                    <th style={tableHeaderCellStyle}>Descrição da tarefa</th>
-                    <th style={tableHeaderCellStyle}>Código interno</th>
-                    <th style={tableHeaderCellStyle}>Periodicidade</th>
-                    <th style={tableHeaderCellStyle}>Sistema</th>
-                    <th style={tableHeaderCellStyle}>Sub sistema</th>
-                    <th style={tableHeaderCellStyle}>Medição</th>
-                    <th style={tableHeaderCellStyle}>Criticidade</th>
-                    <th style={tableHeaderCellStyle}>Ativa</th>
-                    <th style={tableHeaderCellStyle}>Remover</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {taskRows.map((row, index) => (
-                    <tr key={`task-row-${index}`} style={{ borderTop: '1px solid #e2e8f0' }}>
-                      <td style={tableBodyCellStyle}>
-                        <input
-                          type="text"
-                          value={row.tarefa}
-                          onChange={event =>
-                            handleTaskRowChange(index, 'tarefa', event.target.value)
-                          }
-                          placeholder="Descrição"
-                          style={{
-                            width: '100%',
-                            padding: 6,
-                            borderRadius: 6,
-                            border: '1px solid #d1d5db'
-                          }}
-                        />
-                      </td>
-                      <td style={tableBodyCellStyle}>
-                        <input
-                          type="text"
-                          value={row.codigo}
-                          onChange={event =>
-                            handleTaskRowChange(index, 'codigo', event.target.value)
-                          }
-                          placeholder="Código"
-                          style={{
-                            width: '100%',
-                            padding: 6,
-                            borderRadius: 6,
-                            border: '1px solid #d1d5db'
-                          }}
-                        />
-                      </td>
-                      <td style={tableBodyCellStyle}>
-                        <input
-                          type="number"
-                          min={1}
-                          max={60}
-                          value={row.periodicidade}
-                          onChange={event =>
-                            handleTaskRowChange(index, 'periodicidade', event.target.value)
-                          }
-                          placeholder="1-60"
-                          style={{
-                            width: '100%',
-                            padding: 6,
-                            borderRadius: 6,
-                            border: '1px solid #d1d5db'
-                          }}
-                        />
-                      </td>
-                      <td style={tableBodyCellStyle}>
-                        <input
-                          type="text"
-                          list={sistemaOptions.length ? 'sistema-options' : undefined}
-                          value={row.sistema}
-                          onChange={event =>
-                            handleTaskRowChange(index, 'sistema', event.target.value)
-                          }
-                          placeholder="Sistema"
-                          style={{
-                            width: '100%',
-                            padding: 6,
-                            borderRadius: 6,
-                            border: '1px solid #d1d5db'
-                          }}
-                        />
-                        {sistemaOptions.length > 0 && (
-                          <datalist id="sistema-options">
-                            {sistemaOptions.map(option => (
-                              <option key={`sistema-${option}`} value={option} />
-                            ))}
-                          </datalist>
-                        )}
-                      </td>
-                      <td style={tableBodyCellStyle}>
-                        <input
-                          type="text"
-                          list={subSistemaOptions.length ? 'subsistema-options' : undefined}
-                          value={row.sub_sistema}
-                          onChange={event =>
-                            handleTaskRowChange(index, 'sub_sistema', event.target.value)
-                          }
-                          placeholder="Sub sistema"
-                          style={{
-                            width: '100%',
-                            padding: 6,
-                            borderRadius: 6,
-                            border: '1px solid #d1d5db'
-                          }}
-                        />
-                        {subSistemaOptions.length > 0 && (
-                          <datalist id="subsistema-options">
-                            {subSistemaOptions.map(option => (
-                              <option key={`sub-${option}`} value={option} />
-                            ))}
-                          </datalist>
-                        )}
-                      </td>
-                      <td style={tableBodyCellStyle}>
-                        <select
-                          value={row.medicao}
-                          onChange={event =>
-                            handleTaskRowChange(index, 'medicao', event.target.value)
-                          }
-                          style={{
-                            width: '100%',
-                            padding: 6,
-                            borderRadius: 6,
-                            border: '1px solid #d1d5db'
-                          }}
-                        >
-                          {YES_NO_OPTIONS.map(option => (
-                            <option key={`medicao-${option.value}`} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td style={tableBodyCellStyle}>
-                        <select
-                          value={row.criticidade}
-                          onChange={event =>
-                            handleTaskRowChange(index, 'criticidade', event.target.value)
-                          }
-                          style={{
-                            width: '100%',
-                            padding: 6,
-                            borderRadius: 6,
-                            border: '1px solid #d1d5db'
-                          }}
-                        >
-                          {YES_NO_OPTIONS.map(option => (
-                            <option key={`criticidade-${option.value}`} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td style={tableBodyCellStyle}>
-                        <select
-                          value={row.active}
-                          onChange={event =>
-                            handleTaskRowChange(index, 'active', event.target.value)
-                          }
-                          style={{
-                            width: '100%',
-                            padding: 6,
-                            borderRadius: 6,
-                            border: '1px solid #d1d5db'
-                          }}
-                        >
-                          {YES_NO_OPTIONS.map(option => (
-                            <option key={`active-${option.value}`} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td style={tableBodyCellStyle}>
-                        <button
-                          type="button"
-                          onClick={() => removeTaskRow(index)}
-                          style={{
-                            padding: '6px 10px',
-                            borderRadius: 8,
-                            border: '1px solid #d1d5db',
-                            background: '#ffffff',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          Remover
-                        </button>
-                      </td>
+            <div style={modalGridScrollStyle}>
+              <div style={{ width: '100%', overflowX: 'auto' }}>
+                <table style={modalGridTableStyle}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...tableHeaderCellStyle, textAlign: 'left' }}>Descrição da tarefa</th>
+                      <th style={tableHeaderCellStyle}>Código interno</th>
+                      <th style={tableHeaderCellStyle}>Periodicidade</th>
+                      <th style={tableHeaderCellStyle}>Sistema</th>
+                      <th style={tableHeaderCellStyle}>Sub sistema</th>
+                      <th style={tableHeaderCellStyle}>Medição</th>
+                      <th style={tableHeaderCellStyle}>Criticidade</th>
+                      <th style={tableHeaderCellStyle}>Ativa</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {taskRows.map((row, index) => (
+                      <tr key={`task-row-${index}`} style={{ borderTop: '1px solid #e2e8f0' }}>
+                        <td
+                          style={{
+                            ...tableBodyCellStyle,
+                            paddingTop: 16,
+                            paddingBottom: 16
+                          }}
+                        >
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                            <input
+                              type="text"
+                              value={row.tarefa}
+                              maxLength={260}
+                              onChange={event =>
+                                handleTaskRowChange(index, 'tarefa', event.target.value)
+                              }
+                              placeholder="Descrição"
+                              style={{
+                                flex: 1,
+                                minWidth: 0,
+                                padding: '10px 14px',
+                                borderRadius: 6,
+                                border: '1px solid #d1d5db'
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeTaskRow(index)}
+                              style={{
+                                padding: '4px 10px',
+                                borderRadius: 8,
+                                border: '1px solid #d1d5db',
+                                background: '#f8fafc',
+                                color: '#1f2937',
+                                fontSize: 12,
+                                cursor: 'pointer',
+                                height: 38
+                              }}
+                            >
+                              Remover
+                            </button>
+                          </div>
+                        </td>
+                        <td style={tableBodyCellStyle}>
+                          <input
+                            type="text"
+                            value={row.codigo}
+                            onChange={event =>
+                              handleTaskRowChange(index, 'codigo', event.target.value)
+                            }
+                            placeholder="Código"
+                            style={{
+                              width: '100%',
+                              padding: 6,
+                              borderRadius: 6,
+                              border: '1px solid #d1d5db'
+                            }}
+                          />
+                        </td>
+                        <td style={tableBodyCellStyle}>
+                          <input
+                            type="number"
+                            min={1}
+                            max={60}
+                            value={row.periodicidade}
+                            onChange={event =>
+                              handleTaskRowChange(index, 'periodicidade', event.target.value)
+                            }
+                            placeholder="1-60"
+                            style={{
+                              width: '100%',
+                              padding: 6,
+                              borderRadius: 6,
+                              border: '1px solid #d1d5db'
+                            }}
+                          />
+                        </td>
+                        <td style={tableBodyCellStyle}>
+                          <input
+                            type="text"
+                            list={sistemaOptions.length ? 'sistema-options' : undefined}
+                            value={row.sistema}
+                            onChange={event =>
+                              handleTaskRowChange(index, 'sistema', event.target.value)
+                            }
+                            placeholder="Sistema"
+                            style={{
+                              width: '100%',
+                              padding: 6,
+                              borderRadius: 6,
+                              border: '1px solid #d1d5db'
+                            }}
+                          />
+                          {sistemaOptions.length > 0 && (
+                            <datalist id="sistema-options">
+                              {sistemaOptions.map(option => (
+                                <option key={`sistema-${option}`} value={option} />
+                              ))}
+                            </datalist>
+                          )}
+                        </td>
+                        <td style={tableBodyCellStyle}>
+                          <input
+                            type="text"
+                            list={subSistemaOptions.length ? 'subsistema-options' : undefined}
+                            value={row.sub_sistema}
+                            onChange={event =>
+                              handleTaskRowChange(index, 'sub_sistema', event.target.value)
+                            }
+                            placeholder="Sub sistema"
+                            style={{
+                              width: '100%',
+                              padding: 6,
+                              borderRadius: 6,
+                              border: '1px solid #d1d5db'
+                            }}
+                          />
+                          {subSistemaOptions.length > 0 && (
+                            <datalist id="subsistema-options">
+                              {subSistemaOptions.map(option => (
+                                <option key={`sub-${option}`} value={option} />
+                              ))}
+                            </datalist>
+                          )}
+                        </td>
+                        <td style={tableBodyCellStyle}>
+                          <select
+                            value={row.medicao}
+                            onChange={event =>
+                              handleTaskRowChange(index, 'medicao', event.target.value)
+                            }
+                            style={{
+                              width: '100%',
+                              padding: 6,
+                              borderRadius: 6,
+                              border: '1px solid #d1d5db'
+                            }}
+                          >
+                            {YES_NO_OPTIONS.map(option => (
+                              <option key={`medicao-${option.value}`} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td style={tableBodyCellStyle}>
+                          <select
+                            value={row.criticidade}
+                            onChange={event =>
+                              handleTaskRowChange(index, 'criticidade', event.target.value)
+                            }
+                            style={{
+                              width: '100%',
+                              padding: 6,
+                              borderRadius: 6,
+                              border: '1px solid #d1d5db'
+                            }}
+                          >
+                            {YES_NO_OPTIONS.map(option => (
+                              <option key={`criticidade-${option.value}`} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td style={tableBodyCellStyle}>
+                          <select
+                            value={row.active}
+                            onChange={event =>
+                              handleTaskRowChange(index, 'active', event.target.value)
+                            }
+                            style={{
+                              width: '100%',
+                              padding: 6,
+                              borderRadius: 6,
+                              border: '1px solid #d1d5db'
+                            }}
+                          >
+                            {YES_NO_OPTIONS.map(option => (
+                              <option key={`active-${option.value}`} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
             {gridError && (
-              <div style={{ color: '#b91c1c', fontSize: 12, marginTop: 8 }}>
-                {gridError}
-              </div>
+              <div style={{ color: '#b91c1c', fontSize: 12, marginTop: 8 }}>{gridError}</div>
             )}
           </div>
           <button
