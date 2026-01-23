@@ -226,6 +226,29 @@ CREATE TABLE IF NOT EXISTS tb_parametro (
 CREATE INDEX IF NOT EXISTS idx_parametro_company_tipo
 ON tb_parametro (company_id, tipo_parametro);
 
+CREATE TABLE IF NOT EXISTS tb_acao (
+  id_acao TEXT PRIMARY KEY,
+  company_id TEXT NOT NULL,
+  id_usuario_solicitante TEXT,
+  id_usuario_responsavel TEXT,
+  data_criado TEXT,
+  data_vencimento TEXT,
+  status TEXT NOT NULL CHECK (status IN ('Aberta', 'Em andamento', 'Concluída')),
+  grupo_acao TEXT,
+  origem_acao TEXT,
+  equipe TEXT,
+  criticidade TEXT,
+  texto_acao TEXT,
+  texto_enerramento TEXT,
+  texto_devolutiva TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (company_id) REFERENCES tb_company (id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_acao_company_vencimento
+ON tb_acao (company_id, data_vencimento);
+
 CREATE TABLE IF NOT EXISTS tb_estrutura_history (
   id TEXT PRIMARY KEY,
   company_id TEXT NOT NULL,

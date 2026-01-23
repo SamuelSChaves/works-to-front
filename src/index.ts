@@ -277,56 +277,54 @@ type AcaoRow = {
   texto_devolutiva: string
 }
 
-const SAMPLE_ACTIONS: AcaoRow[] = [
-  {
-    id_company: 'cmp_tecrail',
-    id_acao: 1,
-    id_usuario_solicitante: 'usr_tec_001',
-    id_usuario_responsavel: 'usr_tec_001',
-    data_criado: '2026-01-15',
-    data_vencimento: '2026-01-22',
-    status: 'Aberta',
-    grupo_acao: 'Infraestrutura',
-    origem_acao: 'Operação',
-    equipe: 'Equipe Campo',
-    criticidade: 'Alta',
-    texto_acao: 'Revisar atuadores do painel mestre.',
-    texto_enerramento: 'Em revisão',
-    texto_devolutiva: 'Repassar para o setor AC.'
-  },
-  {
-    id_company: 'cmp_tecrail',
-    id_acao: 2,
-    id_usuario_solicitante: 'usr_urb_001',
-    id_usuario_responsavel: 'usr_tec_001',
-    data_criado: '2026-01-12',
-    data_vencimento: '2026-01-20',
-    status: 'Em andamento',
-    grupo_acao: 'Operação',
-    origem_acao: 'Planejamento',
-    equipe: 'Equipe Campo',
-    criticidade: 'Média',
-    texto_acao: 'Testar comunicação entre séries.',
-    texto_enerramento: 'Aguardando resposta.',
-    texto_devolutiva: 'OK após testes.'
-  },
-  {
-    id_company: 'cmp_tecrail',
-    id_acao: 3,
-    id_usuario_solicitante: 'usr_urb_001',
-    id_usuario_responsavel: 'usr_urb_001',
-    data_criado: '2026-01-10',
-    data_vencimento: '2026-01-18',
-    status: 'Concluída',
-    grupo_acao: 'Segurança',
-    origem_acao: 'Auditoria',
-    equipe: 'Equipe Campo',
-    criticidade: 'Baixa',
-    texto_acao: 'Atualizar procedimentos de emergência.',
-    texto_enerramento: 'Finalizado',
-    texto_devolutiva: 'Documento publicado.'
+type AcaoRowRecord = {
+  id_acao: string
+  company_id: string
+  id_usuario_solicitante: string | null
+  id_usuario_responsavel: string | null
+  data_criado: string | null
+  data_vencimento: string | null
+  status: string | null
+  grupo_acao: string | null
+  origem_acao: string | null
+  equipe: string | null
+  criticidade: string | null
+  texto_acao: string | null
+  texto_enerramento: string | null
+  texto_devolutiva: string | null
+}
+
+function normalizeActionStatusValue(value?: string | null): AcaoStatus {
+  const normalized = String(value ?? '').trim().toLowerCase()
+  if (normalized.includes('conclu')) {
+    return 'Concluída'
   }
-]
+  if (normalized.includes('andamento')) {
+    return 'Em andamento'
+  }
+  return 'Aberta'
+}
+
+function mapActionRow(record: AcaoRowRecord): AcaoRow {
+  const toText = (value?: string | null) => (value ? value : '')
+  const toNumber = Number(String(record.id_acao).replace(/\D/g, ''))
+  return {
+    id_company: record.company_id,
+    id_acao: Number.isNaN(toNumber) ? 0 : toNumber,
+    id_usuario_solicitante: toText(record.id_usuario_solicitante),
+    id_usuario_responsavel: toText(record.id_usuario_responsavel),
+    data_criado: toText(record.data_criado),
+    data_vencimento: toText(record.data_vencimento),
+    status: normalizeActionStatusValue(record.status),
+    grupo_acao: toText(record.grupo_acao),
+    origem_acao: toText(record.origem_acao),
+    equipe: toText(record.equipe),
+    criticidade: toText(record.criticidade),
+    texto_acao: toText(record.texto_acao),
+    texto_enerramento: toText(record.texto_enerramento),
+    texto_devolutiva: toText(record.texto_devolutiva)
+  }
+}
 
 type TarefaRow = {
   id: string
@@ -4613,10 +4611,31 @@ async function handleListActions(
     return Response.json({ error: 'Token invalido.' }, { status: 401 })
   }
 
-  const pending = SAMPLE_ACTIONS.filter(
-    action =>
-      action.id_company === auth.company_id && isPendingActionStatus(action.status)
+  const rows = await env.DB.prepare(
+    `SELECT
+      id_acao,
+      company_id,
+      id_usuario_solicitante,
+      id_usuario_responsavel,
+      data_criado,
+      data_vencimento,
+      status,
+      grupo_acao,
+      origem_acao,
+      equipe,
+      criticidade,
+      texto_acao,
+      texto_enerramento,
+      texto_devolutiva
+     FROM tb_acao
+     WHERE company_id = ?
+     ORDER BY data_vencimento ASC`
   )
+    .bind(auth.company_id)
+    .all<AcaoRowRecord>()
+
+  const actions = rows.results.map(mapActionRow)
+  const pending = actions.filter(action => isPendingActionStatus(action.status))
   const visible = userCanViewAllActions(auth)
     ? pending
     : pending.filter(action => isActionAssignedToUser(action, auth))
