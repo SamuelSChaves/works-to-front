@@ -1,4 +1,5 @@
-#!/usr/bin/env pwsh
+#!/usr/bin/env pwsh >>>>>>> comando para start pwsh ./Deploy_backend
+
 $ErrorActionPreference = 'Stop'
 
 function CommitAndPush($context) {
