@@ -104,6 +104,9 @@ const ProdutividadeRotogramaPage = lazyLoad(() =>
 const AcoesTOPage = lazyLoad(() =>
   import('./pages/AcoesTO').then(module => ({ default: module.AcoesTO }))
 )
+const DataUploadPage = lazyLoad(() =>
+  import('./pages/DataUpload').then(module => ({ default: module.DataUpload }))
+)
 
 export const router = createBrowserRouter([
   {
@@ -199,6 +202,14 @@ export const router = createBrowserRouter([
       {
         path: 'produtividade',
         element: <Navigate to="produtividade/dashboard" replace />
+      },
+      {
+        path: 'dados/upload',
+        element: (
+          <SuspenseLoader>
+            <DataUploadPage />
+          </SuspenseLoader>
+        )
       },
       {
         path: 'produtividade/dashboard',
@@ -305,16 +316,25 @@ export const router = createBrowserRouter([
               </SuspenseLoader>
             )
           },
-          {
-            path: 'dados',
-            element: (
-              <SuspenseLoader>
-                <ConfiguracaoDadosPage />
-              </SuspenseLoader>
-            )
-          }
-        ]
-      }
+        {
+          path: 'dados',
+          element: (
+            <SuspenseLoader>
+              <ConfiguracaoDadosPage />
+            </SuspenseLoader>
+          )
+        }
+        ,
+        {
+          path: 'dados/upload',
+          element: (
+            <SuspenseLoader>
+              <DataUploadPage />
+            </SuspenseLoader>
+          )
+        }
+      ]
+    }
     ]
   },
   {

@@ -1474,21 +1474,6 @@ export function Home() {
             </select>
           </label>
 
-          <button
-            type="button"
-            onClick={() => navigate('/app/ordens-servico')}
-            style={{
-              padding: '10px 16px',
-              borderRadius: 10,
-              border: '1px solid #1d4ed8',
-              background: '#1d4ed8',
-              color: '#ffffff',
-              fontWeight: 600,
-              cursor: 'pointer'
-            }}
-          >
-            Ir para Ordens de Serviço
-          </button>
         </div>
       </header>
 

@@ -7,3 +7,7 @@ frontend/dist/
 .env
 frontend/.env
 .DS_Store
+.wrangler/
+tmp*.py
+tmp*.txt
+.dev.vars

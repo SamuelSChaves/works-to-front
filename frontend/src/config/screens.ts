@@ -143,6 +143,14 @@ export const SCREEN_PERMISSIONS: ScreenPermissionConfig[] = [
     criacao: false,
     edicao: false,
     exclusao: false
+  },
+  {
+    id: 'bulk-upload',
+    label: 'Carga de dados',
+    leitura: true,
+    criacao: true,
+    edicao: false,
+    exclusao: false
   }
 ]
 

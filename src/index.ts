@@ -258,6 +258,76 @@ type NotaChangeRow = {
   created_at: string
 }
 
+type AcaoStatus = 'Aberta' | 'Em andamento' | 'Concluída'
+
+type AcaoRow = {
+  id_company: string
+  id_acao: number
+  id_usuario_solicitante: string
+  id_usuario_responsavel: string
+  data_criado: string
+  data_vencimento: string
+  status: AcaoStatus
+  grupo_acao: string
+  origem_acao: string
+  equipe: string
+  criticidade: string
+  texto_acao: string
+  texto_enerramento: string
+  texto_devolutiva: string
+}
+
+const SAMPLE_ACTIONS: AcaoRow[] = [
+  {
+    id_company: 'cmp_tecrail',
+    id_acao: 1,
+    id_usuario_solicitante: 'usr_tec_001',
+    id_usuario_responsavel: 'usr_tec_001',
+    data_criado: '2026-01-15',
+    data_vencimento: '2026-01-22',
+    status: 'Aberta',
+    grupo_acao: 'Infraestrutura',
+    origem_acao: 'Operação',
+    equipe: 'Equipe Campo',
+    criticidade: 'Alta',
+    texto_acao: 'Revisar atuadores do painel mestre.',
+    texto_enerramento: 'Em revisão',
+    texto_devolutiva: 'Repassar para o setor AC.'
+  },
+  {
+    id_company: 'cmp_tecrail',
+    id_acao: 2,
+    id_usuario_solicitante: 'usr_urb_001',
+    id_usuario_responsavel: 'usr_tec_001',
+    data_criado: '2026-01-12',
+    data_vencimento: '2026-01-20',
+    status: 'Em andamento',
+    grupo_acao: 'Operação',
+    origem_acao: 'Planejamento',
+    equipe: 'Equipe Campo',
+    criticidade: 'Média',
+    texto_acao: 'Testar comunicação entre séries.',
+    texto_enerramento: 'Aguardando resposta.',
+    texto_devolutiva: 'OK após testes.'
+  },
+  {
+    id_company: 'cmp_tecrail',
+    id_acao: 3,
+    id_usuario_solicitante: 'usr_urb_001',
+    id_usuario_responsavel: 'usr_urb_001',
+    data_criado: '2026-01-10',
+    data_vencimento: '2026-01-18',
+    status: 'Concluída',
+    grupo_acao: 'Segurança',
+    origem_acao: 'Auditoria',
+    equipe: 'Equipe Campo',
+    criticidade: 'Baixa',
+    texto_acao: 'Atualizar procedimentos de emergência.',
+    texto_enerramento: 'Finalizado',
+    texto_devolutiva: 'Documento publicado.'
+  }
+]
+
 type TarefaRow = {
   id: string
   company_id: string
@@ -286,6 +356,49 @@ const NOTA_STATUSES: NotaStatus[] = [
   'Plano',
   'Cancelado'
 ]
+
+type BulkSchema = {
+  name: string
+  table: string
+  columns: string[]
+  description: string
+}
+
+const BULK_UPLOAD_SCHEMAS: Record<string, BulkSchema> = {
+  ativos: {
+    name: 'ativos',
+    table: 'tb_ativo',
+    columns: [
+      'company_id',
+      'ATIVO_CODPE',
+      'ATIVO_DESCRITIVO_OS',
+      'ATIVO_STATUS',
+      'ATIVO_COORDENACAO',
+      'ATIVO_EQUIPE',
+      'ATIVO_CICLO',
+      'ATIVO_ULTIMA_MANUT'
+    ],
+    description: 'Cadastro de ativos com atributos básicos'
+  },
+  componentes: {
+    name: 'componentes',
+    table: 'tb_componente',
+    columns: ['company_id', 'IDATIVO', 'COMP_NOME', 'COMP_MODELO', 'COMP_DATA'],
+    description: 'Componentes ligados aos ativos'
+  },
+  notas: {
+    name: 'notas',
+    table: 'tb_nota',
+    columns: ['company_id', 'nota_pendencia', 'nota_status', 'nota_data_programada'],
+    description: 'Notas de pendência'
+  },
+  ordens_servico: {
+    name: 'ordens_servico',
+    table: 'tb_order_service',
+    columns: ['company_id', 'os_numero', 'os_status', 'os_pdm', 'os_tipo'],
+    description: 'Ordens de serviço básicas'
+  }
+}
 
 function normalizeNotaStatus(value: unknown): NotaStatus | null {
   const normalized = String(value ?? '').trim()
@@ -576,6 +689,7 @@ export default {
                 '/notas',
                 '/notas/detail',
                 '/notas/historico/alteracao',
+                '/acoes',
                 '/os',
                 '/os/detail',
                 '/os/history',
@@ -681,10 +795,16 @@ export default {
           return respond(await handlePlanejamentoTechnicians(request, env), env)
         case 'GET /planejamento/ativos':
           return respond(await handlePlanejamentoAssets(request, env), env)
+        case 'GET /acoes':
+          return respond(await handleListActions(request, env), env)
         case 'POST /tarefas':
           return respond(await handleCreateTarefa(request, env), env)
         case 'PATCH /tarefas':
           return respond(await handleUpdateTarefa(request, env), env)
+        case 'GET /bulk-upload/tables':
+          return respond(await handleBulkUploadTables(request, env), env)
+        case 'POST /bulk-upload':
+          return respond(await handleBulkUpload(request, env), env)
         case 'GET /os':
           return respond(await handleListOrderService(request, env), env)
         case 'GET /os/detail':
@@ -4464,6 +4584,50 @@ async function handleAtivoHistory(request: Request, env: Env): Promise<Response>
   return Response.json({ history: result.results })
 }
 
+function isPendingActionStatus(value?: string) {
+  const normalized = String(value ?? '')
+    .normalize('NFC')
+    .trim()
+    .toLowerCase()
+  return !['concluída', 'concluida'].includes(normalized)
+}
+
+function isActionAssignedToUser(action: AcaoRow, auth: AuthPayload) {
+  const responsible = action.id_usuario_responsavel?.trim().toLowerCase() ?? ''
+  const userId = auth.user_id?.trim().toLowerCase() ?? ''
+  return responsible && userId && responsible === userId
+}
+
+function userCanViewAllActions(auth: AuthPayload) {
+  const role = auth.cargo?.trim().toLowerCase() ?? ''
+  return role.includes('coordenador') || role.includes('gerente')
+}
+
+async function handleListActions(
+  request: Request,
+  env: Env
+): Promise<Response> {
+  assertJwtSecret(env)
+  const auth = await requireAuth(request, env)
+  if (!auth) {
+    return Response.json({ error: 'Token invalido.' }, { status: 401 })
+  }
+
+  const pending = SAMPLE_ACTIONS.filter(
+    action =>
+      action.id_company === auth.company_id && isPendingActionStatus(action.status)
+  )
+  const visible = userCanViewAllActions(auth)
+    ? pending
+    : pending.filter(action => isActionAssignedToUser(action, auth))
+
+  const sorted = visible.slice().sort((a, b) =>
+    a.data_vencimento.localeCompare(b.data_vencimento)
+  )
+
+  return Response.json({ acoes: sorted })
+}
+
 async function handleListOrderService(
   request: Request,
   env: Env
@@ -5883,6 +6047,63 @@ async function handleUpsertSchedulerHoliday(
   }
 
   return Response.json({ ok: true })
+}
+
+async function handleBulkUploadTables(
+  request: Request,
+  env: Env
+): Promise<Response> {
+  assertJwtSecret(env)
+  const auth = await requireAuth(request, env)
+  if (!auth) {
+    return Response.json({ error: 'Token invalido.' }, { status: 401 })
+  }
+  const tables = Object.values(BULK_UPLOAD_SCHEMAS).map(schema => ({
+    name: schema.name,
+    columns: schema.columns,
+    description: schema.description
+  }))
+  return Response.json({ tables })
+}
+
+async function handleBulkUpload(
+  request: Request,
+  env: Env
+): Promise<Response> {
+  assertJwtSecret(env)
+  const auth = await requireAuth(request, env)
+  if (!auth) {
+    return Response.json({ error: 'Token invalido.' }, { status: 401 })
+  }
+
+  const formData = await request.formData()
+  const table = String(formData.get('table') || '').trim()
+  const fileEntry = formData.get('file')
+
+  if (!table || !fileEntry) {
+    return Response.json({ error: 'Tabela e arquivo sao obrigatorios.' }, { status: 400 })
+  }
+
+  const schema = Object.values(BULK_UPLOAD_SCHEMAS).find(item => item.name === table)
+  if (!schema) {
+    return Response.json({ error: 'Tabela invalida.' }, { status: 400 })
+  }
+
+  let fileName: string | null = null
+  if (
+    fileEntry &&
+    typeof fileEntry === 'object' &&
+    'name' in fileEntry &&
+    typeof (fileEntry as Record<string, unknown>).name === 'string'
+  ) {
+    fileName = (fileEntry as Record<string, unknown>).name as string
+  }
+
+  const displayName = fileName || 'arquivo'
+  return Response.json({
+    ok: true,
+    message: `Carga para a tabela ${schema.name} recebida (${displayName}). O processamento sera feito em lote.`
+  })
 }
 
 async function handleOrderServiceHistory(

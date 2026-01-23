@@ -15,6 +15,7 @@ export type User = {
   cargo?: string
   empresaId?: string
   coordenacaoId?: string
+  coordenacao?: string
   equipeId?: string
   profileId?: string
   profileName?: string

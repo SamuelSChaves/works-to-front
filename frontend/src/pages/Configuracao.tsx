@@ -1,5 +1,10 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { SlidersHorizontal, ShieldCheck, PieChart } from 'lucide-react'
+import {
+  SlidersHorizontal,
+  ShieldCheck,
+  PieChart,
+  Upload
+} from 'lucide-react'
 
 export function Configuracao() {
   return (
@@ -80,6 +85,29 @@ export function Configuracao() {
         >
           <PieChart size={16} />
           Dados
+        </NavLink>
+        <NavLink
+          to="dados/upload"
+          style={({ isActive }) => ({
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '10px 16px',
+            borderRadius: 12,
+            textDecoration: 'none',
+            fontWeight: 600,
+            color: isActive ? '#ffffff' : '#0f172a',
+            background: isActive
+              ? 'linear-gradient(90deg, #0f172a, #111827)'
+              : '#ffffff',
+            border: `1px solid ${isActive ? '#0f172a' : '#e2e8f0'}`,
+            boxShadow: isActive
+              ? '0 10px 20px rgba(15, 23, 42, 0.18)'
+              : 'none'
+          })}
+        >
+          <Upload size={16} />
+          Carga de dados
         </NavLink>
       </nav>
 

@@ -1,16 +1,17 @@
 ﻿# Cloudflare Workers configuration
 # Local execution: `wrangler dev` runs this worker against the local D1 database.
 # Remote execution: `wrangler deploy` runs this worker against the remote D1 database.
-name = "tecrail-app"
+name = "works-to-backend"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
+account_id = "11887482e55c6e5ee504c1098016db25"
 
 [[d1_databases]]
 # Use the same logical name locally and remotely; local must mirror remote.
 binding = "DB"
-database_name = "app_db"
+database_name = "app_db_prd"
 # Replace with your real D1 database id after creation in Cloudflare.
-database_id = "<D1_DATABASE_ID>"
+database_id = "d66a998e-abad-4dbb-868d-faf5c97c3f3d"
 
 # Secrets and config (do not commit secrets):
 # - Local: use a .dev.vars file for JWT_SECRET, CORS_ORIGIN, etc.
