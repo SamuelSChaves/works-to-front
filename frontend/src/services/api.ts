@@ -1,4 +1,6 @@
-export const API_URL = 'http://localhost:8787'
+export const API_URL =
+  // Allow overriding the backend URL via Pages/Env for production builds.
+  import.meta.env.VITE_API_URL ?? 'http://localhost:8787'
 
 const originalFetch = window.fetch.bind(window)
 
@@ -144,6 +146,62 @@ export async function updateParametro(
   return normalizeParametroRow(
     payload.parametro as Record<string, unknown>
   )
+}
+
+export type TableSchema = {
+  name: string
+  columns: string[]
+}
+
+export async function fetchBulkUploadTables(token: string): Promise<TableSchema[]> {
+  const response = await fetch(`${API_URL}/bulk-upload/tables`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  if (!response.ok) {
+    const message = await response.text()
+    throw new Error(message || 'Erro ao listar tabelas disponíveis para upload.')
+  }
+  const payload = await response.json()
+  const rows = Array.isArray(payload?.tables) ? payload.tables : []
+  return rows
+    .map((raw: unknown) => {
+      if (!raw || typeof raw !== 'object') {
+        return null
+      }
+      const record = raw as Record<string, unknown>
+      const name =
+        String(record.name ?? record.table ?? record.id ?? '').trim()
+      if (!name) {
+        return null
+      }
+      const columnsRaw = record.columns ?? record.fields ?? []
+      const columns = Array.isArray(columnsRaw)
+        ? columnsRaw
+            .map(column => String(column ?? '').trim())
+            .filter(Boolean)
+        : []
+      return { name, columns }
+    })
+    .filter(
+      (schema: TableSchema | null): schema is TableSchema =>
+        Boolean(schema && schema.name)
+    )
+}
+
+export async function uploadBulkData(
+  formData: FormData,
+  token: string
+): Promise<Record<string, unknown>> {
+  const response = await fetch(`${API_URL}/bulk-upload`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData
+  })
+  if (!response.ok) {
+    const message = await response.text()
+    throw new Error(message || 'Erro ao subir a carga de dados.')
+  }
+  return response.json()
 }
 
 function normalizeParametroRow(
