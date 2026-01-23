@@ -1933,22 +1933,27 @@ export function ConfiguracaoPerfilAcesso() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div style={{ display: 'grid', gap: 6 }}>
               <label style={fieldLabelStyle}>Coordenação *</label>
-              <select
+              <input
                 value={formState.Coordenação}
-                onChange={event => handleFormChange('Coordenação', event.target.value)}
+                onChange={event => {
+                  handleFormChange('Coordenação', event.target.value)
+                  handleFormChange('equipeAtual', '')
+                }}
+                placeholder={
+                  estruturaCoordOptions.length
+                    ? 'Digite ou escolha uma coordenação'
+                    : 'Digite uma coordenação para criar'
+                }
+                list={estruturaCoordOptions.length ? 'coord-options' : undefined}
                 style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid #e2e8f0' }}
-              >
-                <option value="">
-                  {estruturaCoordOptions.length
-                    ? 'Selecione a coordenação'
-                    : 'Carregando coordenações...'}
-                </option>
-                {estruturaCoordOptions.map(coord => (
-                  <option key={coord} value={coord}>
-                    {coord}
-                  </option>
-                ))}
-              </select>
+              />
+              {estruturaCoordOptions.length > 0 && (
+                <datalist id="coord-options">
+                  {estruturaCoordOptions.map(coord => (
+                    <option key={coord} value={coord} />
+                  ))}
+                </datalist>
+              )}
             </div>
             <div style={{ display: 'grid', gap: 6 }}>
               <label style={fieldLabelStyle}>Equipe Atual *</label>
