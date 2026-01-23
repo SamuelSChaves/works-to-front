@@ -95,8 +95,6 @@ export function DataUpload() {
     return () => {
       cancelled = true
     }
-    // we purposefully ignore selectedTable to avoid resetting
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const selectedSchema = useMemo(() => {
