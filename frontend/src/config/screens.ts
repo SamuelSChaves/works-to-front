@@ -138,7 +138,7 @@ export const SCREEN_PERMISSIONS: ScreenPermissionConfig[] = [
   },
   {
     id: 'configuracao',
-    label: 'ConfiguraÃ§Ã£o',
+    label: 'Configurações',
     leitura: true,
     criacao: false,
     edicao: false,
