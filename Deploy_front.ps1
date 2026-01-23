@@ -24,3 +24,7 @@ try {
 } finally {
   Pop-Location
 }
+
+#cd M:\DashBoardTO\TecRail
+#powershell -ExecutionPolicy Bypass -File .\Deploy_backend.ps1
+#powershell -ExecutionPolicy Bypass -File .\Deploy_front.ps1
