@@ -4,7 +4,7 @@
 
 This repository hosts the Cloudflare Worker that powers the TecRail backend. The worker depends on a D1 database schema (see `db/schema.sql`), several secrets (`JWT_SECRET`, `CORS_ORIGIN`), and the CLI configuration in `wrangler.toml`.
 
-Use the scripts in `scripts/` to keep the deployment workflow consistent between terminals.
+Use the scripts in `scripts/` to keep the deployment workflow consistent between terminals. The PowerShell and Unix helpers now run `scripts/create-admin.sql` immediately after applying `db/schema.sql`, so the remote database always starts with the TecRail tenant, an admin user, and a few sample ações.
 
 ## Development vs production databases
 
@@ -33,7 +33,7 @@ Run the PowerShell helper from the repository root to execute the required steps
 powershell -ExecutionPolicy Bypass -File .\scripts\deploy-worker.ps1
 ```
 
-The script applies the remote schema (`wrangler d1 execute`), builds the worker bundle (`wrangler build`), and publishes the worker to the `works-to-backend.workstecnologiaoperacional.workers.dev` route (`wrangler deploy`). This is the flow validated in this session.
+The script applies the remote schema (`wrangler d1 execute`), seeds the D1 database with `scripts/create-admin.sql`, builds the worker bundle (`wrangler build`), and publishes the worker to the `works-to-backend.workstecnologiaoperacional.workers.dev` route (`wrangler deploy`). This is the flow validated in this session.
 
 ## Pre-deploy checklist
 
@@ -50,13 +50,18 @@ On systems with Bash you can run:
 ./scripts/deploy-worker.sh
 ```
 
-This script mirrors the PowerShell version but is suitable for POSIX shells. Both scripts rely on the `wrangler` CLI being authenticated with the Cloudflare account defined in `wrangler.toml`.
+This script mirrors the PowerShell version but is suitable for POSIX shells. Both helpers ghost the schema refresh, the admin seed (`scripts/create-admin.sql`), bundle build, and deploy in one flow and rely on the `wrangler` CLI being authenticated with the Cloudflare account defined in `wrangler.toml`.
 
 ## Secrets & configuration
 
-- Keep local development secrets in `.dev.vars` (e.g. `JWT_SECRET`, `CORS_ORIGIN=http://localhost:5173`).
+- Keep local development secrets in `.dev.vars` (e.g. `JWT_SECRET=...`, `CORS_ORIGIN=http://localhost:5173` or whatever origin shards you need while debugging).
 - Ensure `wrangler.toml` `name` and `d1_databases` sections match the Cloudflare worker and D1 database you created (`works-to-backend`, `app_db_prd`, etc.).
-- Set the same secrets in the Cloudflare dashboard under **Workers > Variables & secrets** before running `wrangler deploy`.
+- Mirror the same secrets into the Cloudflare dashboard with `wrangler secret put`. A convenient set of values for this project is:
+  ```sh
+  wrangler secret put JWT_SECRET <secret-value>
+  wrangler secret put CORS_ORIGIN "http://localhost:5173 https://works-to-front.pages.dev https://*.works-to-front.pages.dev"
+  ```
+  Replace `<secret-value>` with the strong secret used locally so that local `wrangler dev` and the deployed worker share the same signing key.
 
 ## Verification
 
@@ -73,6 +78,7 @@ The expected response is `{"status":"ok","service":"tecrail-worker"}`.
 - Applied `db/schema.sql` to the remote `app_db_prd` D1 instance.
 - Built the worker bundle with `npx wrangler build`.
 - Published `works-to-backend` describing the appropriate route.
+- Re-running `npx wrangler d1 execute app_db_prd --remote --file=scripts/create-admin.sql` restores the default TecRail tenant, admin user, and seeded ações when needed.
 
 ## Backend status
 

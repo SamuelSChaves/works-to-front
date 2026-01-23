@@ -1,5 +1,7 @@
 Write-Host "Aplicando schema D1 remota (app_db_prd)..."
 npx wrangler d1 execute app_db_prd --remote --file=db/schema.sql
+Write-Host "Inserindo usuario admin e dados essenciais..."
+npx wrangler d1 execute app_db_prd --remote --file=scripts/create-admin.sql
 
 Write-Host "Gerando bundle..."
 npx wrangler build
@@ -7,4 +9,4 @@ npx wrangler build
 Write-Host "Publicando worker..."
 npx wrangler deploy
 
-Write-Host "Deploy concluído."
+Write-Host "Deploy concluido."
