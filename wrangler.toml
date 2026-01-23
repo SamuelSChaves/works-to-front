@@ -1,4 +1,4 @@
-﻿# Cloudflare Workers configuration
+# Cloudflare Workers configuration
 # Local execution: `wrangler dev` runs this worker against the local D1 database.
 # Remote execution: `wrangler deploy` runs this worker against the remote D1 database.
 name = "works-to-backend"
