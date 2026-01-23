@@ -6774,16 +6774,43 @@ function buildSessionCookie(
   return parts.join('; ')
 }
 
+const normalizeOrigins = (raw?: string): string[] =>
+  (raw ?? '')
+    .split(/\s+/)
+    .map(origin => origin.trim())
+    .filter(Boolean)
+
 function resolveCorsOrigin(env: Env, request?: Request): string {
-  const explicit = env.CORS_ORIGIN?.trim()
-  if (explicit && explicit !== '*') {
-    return explicit
-  }
   const requestOrigin = request?.headers.get('origin')
+  const allowedOrigins = normalizeOrigins(env.CORS_ORIGIN)
+  if (allowedOrigins.includes('*')) {
+    return '*'
+  }
+  if (requestOrigin) {
+    if (allowedOrigins.includes(requestOrigin)) {
+      return requestOrigin
+    }
+    if (
+      allowedOrigins.some(origin => {
+        if (origin.startsWith('*.')) {
+          return requestOrigin.endsWith(origin.replace('*', ''))
+        }
+        return false
+      })
+    ) {
+      return requestOrigin
+    }
+    if (requestOrigin.endsWith('.works-to-front.pages.dev')) {
+      return requestOrigin
+    }
+  }
+  if (allowedOrigins.length) {
+    return allowedOrigins[0]
+  }
   if (requestOrigin) {
     return requestOrigin
   }
-  return explicit || '*'
+  return '*'
 }
 
 function withCors(
