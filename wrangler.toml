@@ -13,6 +13,10 @@ database_name = "app_db_prd"
 # Replace with your real D1 database id after creation in Cloudflare.
 database_id = "d66a998e-abad-4dbb-868d-faf5c97c3f3d"
 
+[[r2_buckets]]
+binding = "ATTACHMENTS"
+bucket_name = "tecrail-acao-attachments"
+
 # Secrets and config (do not commit secrets):
 # - Local: use a .dev.vars file for JWT_SECRET, CORS_ORIGIN, etc.
 # - Remote: use `wrangler secret put JWT_SECRET` and `wrangler deploy`.

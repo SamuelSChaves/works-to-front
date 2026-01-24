@@ -1,8 +1,15 @@
 
 import { useEffect, useMemo, useState } from 'react'
+import type { ChangeEvent } from 'react'
 
 import { Modal } from '../components/Modal'
-import { API_URL } from '../services/api'
+import {
+  API_URL,
+  downloadActionAttachment,
+  listActionAttachments,
+  uploadActionAttachment
+} from '../services/api'
+import type { ActionAttachment } from '../services/api'
 import {
   getStoredToken,
   getStoredUser,
@@ -15,6 +22,7 @@ import {
   readPersistedActionGroups,
   readPersistedOrigemGroups
 } from '../utils/acoesStorage'
+import { normalizeActionRow } from '../utils/actions'
 import {
   sampleActions,
   type AcaoRecord,
@@ -96,6 +104,10 @@ export function AcoesTO() {
   const [availableUsers, setAvailableUsers] = useState<ActionUser[]>([])
   const [actionGroups, setActionGroups] = useState(() => readPersistedActionGroups())
   const [origemGroups, setOrigemGroups] = useState(() => readPersistedOrigemGroups())
+  const [actionAttachments, setActionAttachments] = useState<ActionAttachment[]>([])
+  const [attachmentsLoading, setAttachmentsLoading] = useState(false)
+  const [attachmentsError, setAttachmentsError] = useState<string | null>(null)
+  const [uploadingAttachments, setUploadingAttachments] = useState(false)
 
   useEffect(() => {
     const unsubscribe = subscribeToUserChanges(() => {
@@ -199,6 +211,56 @@ export function AcoesTO() {
   }, [currentUser])
 
   useEffect(() => {
+    let cancelled = false
+    const token = getStoredToken()
+    if (!token) {
+      setActions(sampleActions)
+      return
+    }
+
+    const loadActions = async () => {
+      try {
+        const response = await fetch(`${API_URL}/acoes`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+
+        if (!response.ok) {
+          const message = await response.text()
+          throw new Error(message || 'Erro ao carregar ações pendentes.')
+        }
+
+        if (cancelled) return
+
+        const payload = await response.json()
+        const rows: Record<string, unknown>[] = Array.isArray(payload?.acoes)
+          ? payload.acoes
+          : Array.isArray(payload?.actions)
+          ? payload.actions
+          : []
+
+        if (!rows.length) {
+          setActions(sampleActions)
+          return
+        }
+
+        const normalized = rows.map(row => normalizeActionRow(row))
+        setActions(normalized)
+      } catch (error) {
+        console.error('Erro ao carregar ações pendentes.', error)
+        if (!cancelled) {
+          setActions(sampleActions)
+        }
+      }
+    }
+
+    loadActions()
+
+    return () => {
+      cancelled = true
+    }
+  }, [currentUser])
+
+  useEffect(() => {
     if (typeof window === 'undefined') return undefined
 
     const handleGroupsUpdate = () => {
@@ -216,6 +278,52 @@ export function AcoesTO() {
       window.removeEventListener(ACTION_ORIGINS_UPDATED_EVENT, handleOriginsUpdate)
     }
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (!selectedAction || modalMode !== 'edit' || !isModalOpen) {
+      setActionAttachments([])
+      setAttachmentsError(null)
+      setAttachmentsLoading(false)
+      return
+    }
+
+    const token = getStoredToken()
+    if (!token) {
+      setAttachmentsError('Sessão expirada. Faça login para ver anexos.')
+      setActionAttachments([])
+      setAttachmentsLoading(false)
+      return
+    }
+
+    const load = async () => {
+      setAttachmentsLoading(true)
+      setAttachmentsError(null)
+      try {
+        const items = await listActionAttachments(selectedAction.id_acao, token)
+        if (!cancelled) {
+          setActionAttachments(items)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setAttachmentsError(
+            error instanceof Error ? error.message : 'Erro ao carregar anexos.'
+          )
+        }
+      } finally {
+        if (!cancelled) {
+          setAttachmentsLoading(false)
+        }
+      }
+    }
+
+    load()
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedAction, modalMode, isModalOpen])
 
   const userRole = currentUser?.role?.toLowerCase() ?? 'leitura'
   const canCreateAction = userRole === 'admin' || userRole === 'edicao'
@@ -377,9 +485,63 @@ export function AcoesTO() {
     setIsModalOpen(false)
   }
 
+  const handleAttachmentChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files
+    if (!files?.length || !selectedAction || modalMode !== 'edit' || !hasEditPermission) {
+      event.target.value = ''
+      return
+    }
+
+    const token = getStoredToken()
+    if (!token) {
+      setAttachmentsError('Sessão expirada. Faça login novamente para anexar arquivos.')
+      event.target.value = ''
+      return
+    }
+
+    setUploadingAttachments(true)
+    setAttachmentsError(null)
+    setAttachmentsLoading(true)
+
+    try {
+      for (const file of Array.from(files)) {
+        await uploadActionAttachment(selectedAction.id_acao, file, token)
+      }
+      const refreshed = await listActionAttachments(selectedAction.id_acao, token)
+      setActionAttachments(refreshed)
+    } catch (error) {
+      setAttachmentsError(
+        error instanceof Error ? error.message : 'Erro ao enviar anexos.'
+      )
+    } finally {
+      setAttachmentsLoading(false)
+      setUploadingAttachments(false)
+      event.target.value = ''
+    }
+  }
+
+  const handleDownloadAttachment = async (attachment: ActionAttachment) => {
+    const token = getStoredToken()
+    if (!token) {
+      setAttachmentsError('Sessão expirada. Faça login novamente para baixar arquivos.')
+      return
+    }
+
+    try {
+      await downloadActionAttachment(attachment, token)
+    } catch (error) {
+      setAttachmentsError(
+        error instanceof Error ? error.message : 'Erro ao baixar anexo.'
+      )
+    }
+  }
+
   const handleClose = () => {
     setIsModalOpen(false)
     setSelectedAction(null)
+    setActionAttachments([])
+    setAttachmentsError(null)
+    setAttachmentsLoading(false)
   }
 
   const hasEditPermission = modalMode === 'create' ? canCreateAction : canModifyAction(selectedAction)
@@ -973,48 +1135,159 @@ export function AcoesTO() {
           </label>
 
           {modalMode === 'edit' && (
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-                gap: 16
-              }}
-            >
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <span style={{ fontSize: 12, color: '#64748b' }}>Encerramento</span>
-                <textarea
-                  rows={2}
-                  value={formState.texto_enerramento}
-                  onChange={event => setFormState(prev => ({ ...prev, texto_enerramento: event.target.value }))}
-                  disabled={!hasEditPermission}
+            <>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                  gap: 16
+                }}
+              >
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <span style={{ fontSize: 12, color: '#64748b' }}>Encerramento</span>
+                  <textarea
+                    rows={2}
+                    value={formState.texto_enerramento}
+                    onChange={event =>
+                      setFormState(prev => ({ ...prev, texto_enerramento: event.target.value }))
+                    }
+                    disabled={!hasEditPermission}
+                    style={{
+                      borderRadius: 10,
+                      border: '1px solid #e2e8f0',
+                      padding: '10px 12px',
+                      background: '#ffffff',
+                      color: '#0f172a',
+                      resize: 'vertical'
+                    }}
+                  />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <span style={{ fontSize: 12, color: '#64748b' }}>Devolutiva</span>
+                  <textarea
+                    rows={2}
+                    value={formState.texto_devolutiva}
+                    onChange={event =>
+                      setFormState(prev => ({ ...prev, texto_devolutiva: event.target.value }))
+                    }
+                    disabled={!hasEditPermission}
+                    style={{
+                      borderRadius: 10,
+                      border: '1px solid #e2e8f0',
+                      padding: '10px 12px',
+                      background: '#ffffff',
+                      color: '#0f172a',
+                      resize: 'vertical'
+                    }}
+                  />
+                </label>
+              </div>
+              <section
+                style={{
+                  borderRadius: 14,
+                  border: '1px solid #e2e8f0',
+                  padding: 16,
+                  background: '#f8fafc',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12
+                }}
+              >
+                <div
                   style={{
-                    borderRadius: 10,
-                    border: '1px solid #e2e8f0',
-                    padding: '10px 12px',
-                    background: '#ffffff',
-                    color: '#0f172a',
-                    resize: 'vertical'
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 12,
+                    flexWrap: 'wrap'
                   }}
-                />
-              </label>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <span style={{ fontSize: 12, color: '#64748b' }}>Devolutiva</span>
-                <textarea
-                  rows={2}
-                  value={formState.texto_devolutiva}
-                  onChange={event => setFormState(prev => ({ ...prev, texto_devolutiva: event.target.value }))}
-                  disabled={!hasEditPermission}
-                  style={{
-                    borderRadius: 10,
-                    border: '1px solid #e2e8f0',
-                    padding: '10px 12px',
-                    background: '#ffffff',
-                    color: '#0f172a',
-                    resize: 'vertical'
-                  }}
-                />
-              </label>
-            </div>
+                >
+                  <strong style={{ fontSize: 14 }}>Anexos</strong>
+                  <label
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '8px 14px',
+                      borderRadius: 10,
+                      border: '1px solid #e2e8f0',
+                      background: hasEditPermission ? '#ffffff' : '#f1f5f9',
+                      color: hasEditPermission ? '#0f172a' : '#94a3b8',
+                      fontWeight: 600,
+                      cursor: hasEditPermission && !uploadingAttachments ? 'pointer' : 'not-allowed'
+                    }}
+                  >
+                    {uploadingAttachments ? 'Enviando...' : 'Adicionar anexo'}
+                    <input
+                      type="file"
+                      multiple
+                      onChange={handleAttachmentChange}
+                      disabled={!hasEditPermission || uploadingAttachments}
+                      style={{ display: 'none' }}
+                    />
+                  </label>
+                </div>
+                {attachmentsError && (
+                  <p style={{ color: '#b91c1c', margin: 0, fontSize: 13 }}>{attachmentsError}</p>
+                )}
+                {attachmentsLoading && (
+                  <p style={{ margin: 0, color: '#64748b', fontSize: 13 }}>Carregando anexos...</p>
+                )}
+                {!attachmentsLoading && actionAttachments.length === 0 && (
+                  <p style={{ margin: 0, color: '#64748b', fontSize: 13 }}>
+                    Nenhum anexo encontrado para esta ação.
+                  </p>
+                )}
+                {!attachmentsLoading && actionAttachments.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {actionAttachments.map(attachment => (
+                      <div
+                        key={attachment.id}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: 12,
+                          padding: '10px 12px',
+                          borderRadius: 10,
+                          background: '#ffffff',
+                          border: '1px solid #e2e8f0'
+                        }}
+                      >
+                        <div>
+                          <strong>{attachment.filename || 'Sem nome'}</strong>
+                          <p
+                            style={{
+                              margin: '4px 0 0',
+                              fontSize: 12,
+                              color: '#475569'
+                            }}
+                          >
+                            {formatDateTime(attachment.created_at)} ·{' '}
+                            {formatFileSize(attachment.size)}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadAttachment(attachment)}
+                          style={{
+                            borderRadius: 999,
+                            border: '1px solid #2563eb',
+                            background: '#2563eb',
+                            color: '#ffffff',
+                            padding: '6px 12px',
+                            fontWeight: 600,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Baixar
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </>
           )}
 
           {!hasEditPermission && (
@@ -1026,4 +1299,27 @@ export function AcoesTO() {
       </Modal>
     </main>
   )
+}
+
+function formatDateTime(value?: string): string {
+  if (!value) return '—'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  return parsed.toLocaleString('pt-BR', {
+    dateStyle: 'short',
+    timeStyle: 'short'
+  })
+}
+
+function formatFileSize(value: number | null): string {
+  if (!value || value <= 0) return '—'
+  if (value < 1024) {
+    return `${value} B`
+  }
+  const kilobytes = value / 1024
+  if (kilobytes < 1024) {
+    return `${kilobytes.toFixed(1)} KB`
+  }
+  const megabytes = kilobytes / 1024
+  return `${megabytes.toFixed(1)} MB`
 }

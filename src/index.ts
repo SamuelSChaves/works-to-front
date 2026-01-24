@@ -7,6 +7,7 @@ export interface Env {
   AUTH_MAX_ATTEMPTS?: string
   AUTH_LOCK_MINUTES?: string
   CORS_ORIGIN?: string
+  ATTACHMENTS: R2Bucket
 }
 
 type AuthPayload = {
@@ -323,6 +324,42 @@ function mapActionRow(record: AcaoRowRecord): AcaoRow {
     texto_acao: toText(record.texto_acao),
     texto_enerramento: toText(record.texto_enerramento),
     texto_devolutiva: toText(record.texto_devolutiva)
+  }
+}
+
+type ActionAttachmentRow = {
+  id: string
+  acao_id: string
+  company_id: string
+  filename: string
+  r2_key: string
+  content_type: string | null
+  size: number | null
+  created_at: string
+  created_by: string | null
+}
+
+type ActionAttachment = {
+  id: string
+  acao_id: string
+  filename: string
+  content_type: string | null
+  size: number | null
+  created_at: string
+  created_by: string | null
+}
+
+function normalizeActionAttachmentRow(
+  row: ActionAttachmentRow
+): ActionAttachment {
+  return {
+    id: row.id,
+    acao_id: row.acao_id,
+    filename: row.filename,
+    content_type: row.content_type ?? null,
+    size: row.size === null || row.size === undefined ? null : Number(row.size),
+    created_at: row.created_at,
+    created_by: row.created_by
   }
 }
 
@@ -795,6 +832,12 @@ export default {
           return respond(await handlePlanejamentoAssets(request, env), env)
         case 'GET /acoes':
           return respond(await handleListActions(request, env), env)
+        case 'GET /acoes/anexos':
+          return respond(await handleListActionAttachments(request, env), env)
+        case 'POST /acoes/anexos':
+          return respond(await handleUploadActionAttachment(request, env), env)
+        case 'GET /acoes/anexos/download':
+          return respond(await handleDownloadActionAttachment(request, env), env)
         case 'POST /tarefas':
           return respond(await handleCreateTarefa(request, env), env)
         case 'PATCH /tarefas':
@@ -4720,6 +4763,189 @@ async function handleListActions(
   )
 
   return Response.json({ acoes: sorted })
+}
+
+async function handleListActionAttachments(
+  request: Request,
+  env: Env
+): Promise<Response> {
+  assertJwtSecret(env)
+  const auth = await requireAuth(request, env)
+  if (!auth) {
+    return Response.json({ error: 'Token invalido.' }, { status: 401 })
+  }
+
+  const url = new URL(request.url)
+  const acaoId = url.searchParams.get('acao_id')?.trim()
+  if (!acaoId) {
+    return Response.json({ error: 'acao_id obrigatorio.' }, { status: 400 })
+  }
+
+  const rows = await env.DB.prepare(
+    `SELECT id,
+            acao_id,
+            company_id,
+            filename,
+            r2_key,
+            content_type,
+            size,
+            created_at,
+            created_by
+     FROM tb_acao_anexo
+     WHERE company_id = ? AND acao_id = ?
+     ORDER BY created_at DESC`
+  )
+    .bind(auth.company_id, acaoId)
+    .all<ActionAttachmentRow>()
+
+  const attachments = rows.results.map(normalizeActionAttachmentRow)
+  return Response.json({ anexos: attachments })
+}
+
+async function handleUploadActionAttachment(
+  request: Request,
+  env: Env
+): Promise<Response> {
+  assertJwtSecret(env)
+  const auth = await requireAuth(request, env)
+  if (!auth) {
+    return Response.json({ error: 'Token invalido.' }, { status: 401 })
+  }
+
+  const formData = await request.formData()
+  const acaoId = String(formData.get('acao_id') ?? '').trim()
+  if (!acaoId) {
+    return Response.json({ error: 'acao_id obrigatorio.' }, { status: 400 })
+  }
+
+  const fileEntry = formData.get('file')
+  if (!fileEntry || !(fileEntry instanceof File)) {
+    return Response.json({ error: 'Arquivo obrigatorio.' }, { status: 400 })
+  }
+
+  const actionExists = await env.DB.prepare(
+    'SELECT id_acao FROM tb_acao WHERE company_id = ? AND id_acao = ? LIMIT 1'
+  )
+    .bind(auth.company_id, acaoId)
+    .first<Record<string, unknown>>()
+
+  if (!actionExists?.id_acao) {
+    return Response.json({ error: 'Ação não encontrada.' }, { status: 404 })
+  }
+
+  const filename = String(fileEntry.name || 'anexo').trim()
+  const fileBytes = await fileEntry.arrayBuffer()
+  const size = fileBytes.byteLength
+  const key = `acoes/${auth.company_id}/${acaoId}/${crypto.randomUUID()}-${filename}`
+  await env.ATTACHMENTS.put(key, fileBytes, {
+    httpMetadata: {
+      contentType: fileEntry.type || 'application/octet-stream'
+    },
+    customMetadata: {
+      company_id: auth.company_id,
+      acao_id: acaoId,
+      filename
+    }
+  })
+
+  const attachmentId = crypto.randomUUID()
+  await env.DB.prepare(
+    `INSERT INTO tb_acao_anexo
+     (id, acao_id, company_id, filename, r2_key, content_type, size, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      attachmentId,
+      acaoId,
+      auth.company_id,
+      filename,
+      key,
+      fileEntry.type || null,
+      size,
+      auth.user_id ?? null
+    )
+    .run()
+
+  const row = await env.DB.prepare(
+    `SELECT id,
+            acao_id,
+            company_id,
+            filename,
+            r2_key,
+            content_type,
+            size,
+            created_at,
+            created_by
+     FROM tb_acao_anexo
+     WHERE id = ? AND company_id = ?`
+  )
+    .bind(attachmentId, auth.company_id)
+    .first<ActionAttachmentRow>()
+
+  if (!row) {
+    return Response.json(
+      { error: 'Erro ao salvar anexo.' },
+      { status: 500 }
+    )
+  }
+
+  return Response.json(
+    { anexo: normalizeActionAttachmentRow(row) },
+    { status: 201 }
+  )
+}
+
+async function handleDownloadActionAttachment(
+  request: Request,
+  env: Env
+): Promise<Response> {
+  assertJwtSecret(env)
+  const auth = await requireAuth(request, env)
+  if (!auth) {
+    return Response.json({ error: 'Token invalido.' }, { status: 401 })
+  }
+
+  const url = new URL(request.url)
+  const attachmentId = url.searchParams.get('id')?.trim()
+  if (!attachmentId) {
+    return Response.json({ error: 'id obrigatorio.' }, { status: 400 })
+  }
+
+  const row = await env.DB.prepare(
+    `SELECT id,
+            acao_id,
+            company_id,
+            filename,
+            r2_key,
+            content_type,
+            size,
+            created_at,
+            created_by
+     FROM tb_acao_anexo
+     WHERE id = ? AND company_id = ?`
+  )
+    .bind(attachmentId, auth.company_id)
+    .first<ActionAttachmentRow>()
+
+  if (!row) {
+    return Response.json({ error: 'Anexo não encontrado.' }, { status: 404 })
+  }
+
+  const object = await env.ATTACHMENTS.get(row.r2_key)
+  if (!object?.body) {
+    return Response.json(
+      { error: 'Arquivo não encontrado no storage.' },
+      { status: 404 }
+    )
+  }
+
+  const headers = new Headers()
+  headers.set('Content-Type', row.content_type ?? 'application/octet-stream')
+  headers.set(
+    'Content-Disposition',
+    `attachment; filename="${row.filename.replace(/"/g, '\\"')}"`
+  )
+  return new Response(object.body, { headers })
 }
 
 async function handleListOrderService(

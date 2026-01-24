@@ -246,6 +246,23 @@ CREATE TABLE IF NOT EXISTS tb_acao (
   FOREIGN KEY (company_id) REFERENCES tb_company (id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS tb_acao_anexo (
+  id TEXT PRIMARY KEY,
+  acao_id TEXT NOT NULL,
+  company_id TEXT NOT NULL,
+  filename TEXT NOT NULL,
+  r2_key TEXT NOT NULL,
+  content_type TEXT,
+  size INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_by TEXT,
+  FOREIGN KEY (acao_id) REFERENCES tb_acao (id_acao) ON DELETE CASCADE,
+  FOREIGN KEY (company_id) REFERENCES tb_company (id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_tb_acao_anexo_company_action
+  ON tb_acao_anexo (company_id, acao_id);
+
 CREATE INDEX IF NOT EXISTS idx_acao_company_vencimento
 ON tb_acao (company_id, data_vencimento);
 

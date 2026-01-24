@@ -236,3 +236,114 @@ function normalizeParametroRow(
         : String(row.updated_at)
   }
 }
+
+export type ActionAttachment = {
+  id: string
+  acao_id: string
+  filename: string
+  content_type: string | null
+  size: number | null
+  created_at: string
+  created_by: string | null
+}
+
+export async function listActionAttachments(
+  actionId: string | number,
+  token: string
+): Promise<ActionAttachment[]> {
+  const url = new URL(`${API_URL}/acoes/anexos`)
+  url.searchParams.set('acao_id', String(actionId))
+  const response = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  if (!response.ok) {
+    const message = await response.text()
+    throw new Error(message || 'Erro ao listar anexos.')
+  }
+  const payload = await response.json()
+  const rows = Array.isArray(payload?.anexos) ? payload.anexos : []
+  return rows
+    .map((row: unknown) => {
+      if (!row || typeof row !== 'object') {
+        return null
+      }
+      return normalizeActionAttachmentRow(row as Record<string, unknown>)
+    })
+    .filter(
+      (attachment: ActionAttachment | null): attachment is ActionAttachment =>
+        Boolean(attachment && attachment.id)
+    )
+}
+
+export async function uploadActionAttachment(
+  actionId: string | number,
+  file: File,
+  token: string
+): Promise<ActionAttachment> {
+  const formData = new FormData()
+  formData.append('acao_id', String(actionId))
+  formData.append('file', file)
+  const response = await fetch(`${API_URL}/acoes/anexos`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData
+  })
+  if (!response.ok) {
+    const message = await response.text()
+    throw new Error(message || 'Erro ao enviar anexo.')
+  }
+  const payload = await response.json()
+  return normalizeActionAttachmentRow(payload.anexo ?? payload.attachment ?? {})
+}
+
+export async function downloadActionAttachment(
+  attachment: ActionAttachment,
+  token: string
+): Promise<void> {
+  const url = new URL(`${API_URL}/acoes/anexos/download`)
+  url.searchParams.set('id', attachment.id)
+  const response = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  if (!response.ok) {
+    const message = await response.text()
+    throw new Error(message || 'Erro ao baixar anexo.')
+  }
+  const blob = await response.blob()
+  const downloadUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = downloadUrl
+  link.download = attachment.filename || 'anexo'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(downloadUrl), 5000)
+}
+
+function normalizeActionAttachmentRow(
+  row: Record<string, unknown>
+): ActionAttachment {
+  const rawSize = row.size
+  const rawCreatedBy = row.created_by
+  const rawContentType = row.content_type
+  return {
+    id: String(row.id ?? ''),
+    acao_id: String(row.acao_id ?? ''),
+    filename: String(row.filename ?? ''),
+    content_type:
+      rawContentType === null || rawContentType === undefined
+        ? null
+        : String(rawContentType),
+    size:
+      rawSize === null || rawSize === undefined
+        ? null
+        : Number.isFinite(Number(rawSize))
+        ? Number(rawSize)
+        : null,
+    created_at: String(row.created_at ?? ''),
+    created_by:
+      rawCreatedBy === null || rawCreatedBy === undefined
+        ? null
+        : String(rawCreatedBy)
+  }
+}
