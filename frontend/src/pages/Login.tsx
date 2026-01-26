@@ -1,7 +1,25 @@
-import { useState, type CSSProperties, type FormEvent } from 'react'
+﻿import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { consumePostLoginRedirect, login } from '../services/auth'
+import {
+  consumePostLoginRedirect,
+  login,
+  requestPasswordReset
+} from '../services/auth'
 import logo from '../assets/ToWorks.png'
+import {
+  buttonStyle,
+  card,
+  errorStyle,
+  header,
+  inputStyle,
+  labelStyle,
+  linkButton,
+  logoStyle,
+  page,
+  subtitle,
+  successStyle,
+  title
+} from './authStyles'
 
 export function Login() {
   const navigate = useNavigate()
@@ -10,28 +28,47 @@ export function Login() {
   const [senha, setSenha] = useState('')
   const [modoRecuperar, setModoRecuperar] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
 
-    if (!modoRecuperar && !/^[0-9]{6}$/.test(cs)) {
+    if (!/^[0-9]{6}$/.test(cs)) {
       setError('Informe o CS com 6 dígitos')
+      setSuccessMessage(null)
       return
     }
 
-    if (!modoRecuperar && !senha) {
+    if (modoRecuperar) {
+      setError(null)
+      setSuccessMessage(null)
+      try {
+        setIsLoading(true)
+        await requestPasswordReset(cs)
+        setSuccessMessage(
+          'Enviamos um link de redefinição para o email cadastrado. Ele expira em alguns minutos.'
+        )
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Não foi possível enviar o link de recuperação.'
+        )
+      } finally {
+        setIsLoading(false)
+      }
+      return
+    }
+
+    if (!senha) {
       setError('Informe a senha')
+      setSuccessMessage(null)
       return
     }
 
     setError(null)
-
-    if (modoRecuperar) {
-      alert('Fluxo de recuperação será implementado.')
-      return
-    }
-
+    setSuccessMessage(null)
     try {
       setIsLoading(true)
       await login(cs, senha)
@@ -62,20 +99,20 @@ export function Login() {
 
         {/* FORM */}
         <form onSubmit={handleSubmit}>
+          <label style={labelStyle}>Usuário</label>
+          <input
+            type="text"
+            value={cs}
+            onChange={e =>
+              setCs(e.target.value.replace(/\D/g, '').slice(0, 6))
+            }
+            placeholder=""
+            inputMode="numeric"
+            style={inputStyle}
+          />
+
           {!modoRecuperar && (
             <>
-              <label style={labelStyle}>Usuário</label>
-              <input
-                type="text"
-                value={cs}
-                onChange={e =>
-                  setCs(e.target.value.replace(/\D/g, '').slice(0, 6))
-                }
-                placeholder=""
-                inputMode="numeric"
-                style={inputStyle}
-              />
-
               <label style={labelStyle}>Senha</label>
               <input
                 type="password"
@@ -87,14 +124,27 @@ export function Login() {
             </>
           )}
 
-          {error && <div style={errorStyle}>⚠️ {error}</div>}
+          {error && <div style={errorStyle}>⚠ {error}</div>}
+          {successMessage && <div style={successStyle}>{successMessage}</div>}
 
-          <button type="submit" disabled={isLoading} style={buttonStyle}>
+          {modoRecuperar && (
+            <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 10 }}>
+              Informe o usuário (CS) antes de enviar o link.
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={isLoading || (modoRecuperar && !/^[0-9]{6}$/.test(cs))}
+            style={buttonStyle}
+          >
             {modoRecuperar
-              ? 'Enviar código'
+              ? isLoading
+                ? 'Enviando...'
+                : 'Enviar link'
               : isLoading
-              ? 'Entrando...'
-              : 'Acessar'}
+                ? 'Entrando...'
+                : 'Acessar'}
           </button>
         </form>
 
@@ -103,6 +153,7 @@ export function Login() {
           onClick={() => {
             setModoRecuperar(!modoRecuperar)
             setError(null)
+            setSuccessMessage(null)
           }}
           style={linkButton}
         >
@@ -111,100 +162,4 @@ export function Login() {
       </div>
     </div>
   )
-}
-
-/* ===================== */
-/* 🎨 STYLES */
-/* ===================== */
-
-const page: CSSProperties = {
-  position: 'fixed',
-  inset: 0,
-  background: '#ffffff',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center'
-}
-
-const card: CSSProperties = {
-  width: 420,
-  padding: '48px 36px',
-  borderRadius: 22,
-  background: 'linear-gradient(180deg, #0f172a, #020617)',
-  boxShadow: '0 25px 50px rgba(0,0,0,0.25)',
-  color: '#ffffff'
-}
-
-const header: CSSProperties = {
-  textAlign: 'center',
-  marginBottom: 36
-}
-
-const logoStyle: CSSProperties = {
-  width: 120,
-  marginBottom: 16,
-  filter: 'drop-shadow(0 10px 20px rgba(0,0,0,0.5))'
-}
-
-const title: CSSProperties = {
-  margin: 0,
-  fontSize: 28,
-  fontWeight: 700,
-  letterSpacing: 1
-}
-
-const subtitle: CSSProperties = {
-  fontSize: 13,
-  color: '#22c55e',
-  letterSpacing: 0.4
-}
-
-const labelStyle: CSSProperties = {
-  display: 'block',
-  fontSize: 12,
-  fontWeight: 500,
-  marginBottom: 6,
-  opacity: 0.85
-}
-
-const inputStyle: CSSProperties = {
-  width: '80%',
-  display: 'block',
-  padding: '14px 16px',
-  margin: '0 auto 18px',
-  borderRadius: 14,
-  border: '1px solid #1e293b',
-  background: '#020617',
-  color: '#ffffff',
-  fontSize: 14,
-  outline: 'none'
-}
-
-const buttonStyle: CSSProperties = {
-  width: '100%',
-  padding: '14px',
-  borderRadius: 14,
-  border: 'none',
-  background: '#1d4ed8',
-  color: '#ffffff',
-  fontWeight: 600,
-  fontSize: 15,
-  cursor: 'pointer',
-  boxShadow: '0 10px 20px rgba(29,78,216,0.4)'
-}
-
-const linkButton: CSSProperties = {
-  marginTop: 20,
-  width: '100%',
-  background: 'none',
-  border: 'none',
-  color: '#60a5fa',
-  fontSize: 12,
-  cursor: 'pointer'
-}
-
-const errorStyle: CSSProperties = {
-  color: '#fecaca',
-  fontSize: 12,
-  marginBottom: 12
 }

@@ -7,6 +7,12 @@ export interface Env {
   AUTH_MAX_ATTEMPTS?: string
   AUTH_LOCK_MINUTES?: string
   CORS_ORIGIN?: string
+  PASSWORD_RESET_FRONTEND_URL?: string
+  PASSWORD_RESET_TOKEN_EXP_MINUTES?: string
+  PASSWORD_RESET_EMAIL_API_URL?: string
+  PASSWORD_RESET_EMAIL_API_KEY?: string
+  PASSWORD_RESET_EMAIL_FROM?: string
+  PASSWORD_RESET_EMAIL_SUBJECT?: string
   ATTACHMENTS: R2Bucket
 }
 
@@ -659,6 +665,11 @@ const DEFAULT_MAX_ATTEMPTS = 5
 const DEFAULT_LOCK_MINUTES = 15
 const SESSION_COOKIE_NAME = 'tecrail_session'
 const SESSION_REFRESH_THRESHOLD_MINUTES = 5
+const PASSWORD_RESET_PAGE_PATH = '/recuperar-senha'
+const PASSWORD_RESET_ID_QUERY = 'token_id'
+const PASSWORD_RESET_TOKEN_QUERY = 'token'
+const DEFAULT_PASSWORD_RESET_EXP_MINUTES = 30
+const DEFAULT_PASSWORD_RESET_EMAIL_SUBJECT = 'TO Works · Redefinição de senha'
 
 type PendingSessionRefresh = {
   token: string
@@ -752,6 +763,10 @@ export default {
           return respond(await handleAuthPermissions(request, env), env)
         case 'POST /auth/logout':
           return respond(await handleLogout(request, env), env)
+        case 'POST /auth/password-reset':
+          return respond(await handlePasswordResetRequest(request, env), env)
+        case 'POST /auth/password-reset/confirm':
+          return respond(await handlePasswordResetConfirm(request, env), env)
         case 'POST /admin/users':
           return respond(await handleCreateUser(request, env), env)
         case 'GET /admin/users':
@@ -1185,6 +1200,149 @@ async function handleLogout(request: Request, env: Env): Promise<Response> {
   const response = Response.json({ ok: true })
   response.headers.set('Set-Cookie', cookie)
   return response
+}
+
+async function handlePasswordResetRequest(
+  request: Request,
+  env: Env
+): Promise<Response> {
+  const payload = await readJson(request)
+  const cs = String(payload?.cs || '').trim()
+  if (!isValidCs(cs)) {
+    return Response.json(
+      { error: 'Informe um CS válido com 6 dígitos.' },
+      { status: 400 }
+    )
+  }
+
+  const user = await env.DB
+    .prepare(
+      `SELECT u.*, c.status AS company_status
+       FROM tb_user u
+       LEFT JOIN tb_company c ON c.id = u.company_id
+       WHERE u.cs = ?`
+    )
+    .bind(cs)
+    .first<UserWithCompanyRow>()
+
+  if (
+    !user ||
+    user.company_status !== 'ativo' ||
+    user.status !== 'ativo' ||
+    !user.email
+  ) {
+    return Response.json({ ok: true })
+  }
+
+  const expiresMinutes = getPasswordResetExpirationMinutes(env)
+  const expiresAt = new Date(
+    Date.now() + expiresMinutes * 60 * 1000
+  ).toISOString()
+  const tokenId = crypto.randomUUID()
+  const token = crypto.randomUUID()
+  const tokenHash = await hashResetToken(token)
+  await env.DB
+    .prepare(
+      'INSERT INTO tb_password_reset (id, company_id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?, ?)'
+    )
+    .bind(tokenId, user.company_id, user.id, tokenHash, expiresAt)
+    .run()
+
+  const resetLink = buildPasswordResetLink(env, tokenId, token)
+  try {
+    await sendPasswordResetEmail(env, user, resetLink)
+  } catch (error) {
+    console.error('Erro ao enviar email de recuperação:', error)
+    await env.DB
+      .prepare('DELETE FROM tb_password_reset WHERE id = ?')
+      .bind(tokenId)
+      .run()
+    return Response.json(
+      { error: 'Não foi possível enviar o email de recuperação.' },
+      { status: 500 }
+    )
+  }
+
+  return Response.json({ ok: true })
+}
+
+async function handlePasswordResetConfirm(
+  request: Request,
+  env: Env
+): Promise<Response> {
+  const payload = await readJson(request)
+  const tokenId = String(payload?.token_id || '').trim()
+  const token = String(payload?.token || '').trim()
+  const senha = String(payload?.senha || '')
+
+  if (!tokenId || !token || !senha) {
+    return Response.json({ error: 'Dados inválidos.' }, { status: 400 })
+  }
+
+  if (!isPasswordValid(senha)) {
+    return Response.json(
+      {
+        error:
+          'Senha inválida. Utilize ao menos 7 caracteres, com letras, números e símbolos (!@#$%&).'
+      },
+      { status: 400 }
+    )
+  }
+
+  const row = await env.DB
+    .prepare(
+      `SELECT user_id, company_id, token_hash, expires_at, used_at
+       FROM tb_password_reset
+       WHERE id = ?`
+    )
+    .bind(tokenId)
+    .first<{
+      user_id: string
+      company_id: string
+      token_hash: string
+      expires_at: string
+      used_at: string | null
+    }>()
+
+  if (!row || row.used_at) {
+    return Response.json({ error: 'Link expirado ou inválido.' }, { status: 400 })
+  }
+
+  const expiresAt = new Date(row.expires_at)
+  if (expiresAt.getTime() <= Date.now()) {
+    return Response.json({ error: 'Link expirado ou inválido.' }, { status: 400 })
+  }
+
+  const expectedHash = await hashResetToken(token)
+  if (expectedHash !== row.token_hash) {
+    return Response.json({ error: 'Link expirado ou inválido.' }, { status: 400 })
+  }
+
+  const user = await env.DB
+    .prepare('SELECT status FROM tb_user WHERE id = ? AND company_id = ?')
+    .bind(row.user_id, row.company_id)
+    .first<{ status: string }>()
+
+  if (!user || user.status !== 'ativo') {
+    return Response.json({ error: 'Link expirado ou inválido.' }, { status: 400 })
+  }
+
+  const passwordHash = await bcrypt.hash(senha, 10)
+  await env.DB
+    .prepare(
+      'UPDATE tb_user_auth SET password_hash = ?, failed_attempts = 0, locked_until = NULL WHERE user_id = ?'
+    )
+    .bind(passwordHash, row.user_id)
+    .run()
+
+  await env.DB
+    .prepare('UPDATE tb_password_reset SET used_at = ? WHERE id = ?')
+    .bind(new Date().toISOString(), tokenId)
+    .run()
+
+  await revokeActiveSessionsForUser(env, row.user_id, row.company_id)
+
+  return Response.json({ ok: true })
 }
 
 async function handleCreateUser(request: Request, env: Env): Promise<Response> {
@@ -6792,6 +6950,85 @@ function isValidCs(value: string): boolean {
 
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+}
+
+async function hashResetToken(token: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(token)
+  )
+  const bytes = new Uint8Array(digest)
+  return Array.from(bytes)
+    .map(byte => byte.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+function getPasswordResetExpirationMinutes(env: Env): number {
+  const parsed = parseInt(env.PASSWORD_RESET_TOKEN_EXP_MINUTES || '', 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_PASSWORD_RESET_EXP_MINUTES
+  }
+  return parsed
+}
+
+function buildPasswordResetLink(env: Env, tokenId: string, token: string): string {
+  const raw = env.PASSWORD_RESET_FRONTEND_URL?.trim() || 'http://localhost:5173'
+  let base: URL
+  try {
+    base = new URL(raw)
+  } catch {
+    base = new URL('http://localhost:5173')
+  }
+  base.pathname = PASSWORD_RESET_PAGE_PATH
+  base.searchParams.set(PASSWORD_RESET_ID_QUERY, tokenId)
+  base.searchParams.set(PASSWORD_RESET_TOKEN_QUERY, token)
+  return base.toString()
+}
+
+async function sendPasswordResetEmail(
+  env: Env,
+  user: UserRow,
+  resetLink: string
+): Promise<void> {
+  const apiUrl = env.PASSWORD_RESET_EMAIL_API_URL?.trim()
+  const apiKey = env.PASSWORD_RESET_EMAIL_API_KEY?.trim()
+  const from = env.PASSWORD_RESET_EMAIL_FROM?.trim()
+  if (!apiUrl || !apiKey || !from) {
+    throw new Error('Serviço de email para recuperação de senha não configurado.')
+  }
+
+  const subject =
+    env.PASSWORD_RESET_EMAIL_SUBJECT?.trim() || DEFAULT_PASSWORD_RESET_EMAIL_SUBJECT
+  const expiresMinutes = getPasswordResetExpirationMinutes(env)
+  const plain = `Olá ${user.nome},\n\nRecebemos uma solicitação para redefinir sua senha. Clique no link abaixo para continuar e defina uma nova senha. O link expira em ${expiresMinutes} minutos.\n\n${resetLink}\n\nSe você não solicitou essa alteração, ignore este email.`
+  const html = `
+    <p>Olá ${user.nome},</p>
+    <p>Recebemos uma solicitação para redefinir sua senha. Clique no link abaixo para continuar e defina uma nova senha.</p>
+    <p><a href="${resetLink}">Redefinir minha senha</a></p>
+    <p>Esse link expira em ${expiresMinutes} minutos. Se você não solicitou essa alteração, ignore este email.</p>
+  `
+
+  const response = await fetch(apiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      from,
+      to: user.email,
+      subject,
+      text: plain,
+      html
+    })
+  })
+
+  if (!response.ok) {
+    const errorBody = await response.text()
+    throw new Error(
+      `Falha ao enviar email de recuperação: ${response.status} ${errorBody}`
+    )
+  }
 }
 
 async function readJson(request: Request): Promise<Record<string, unknown> | null> {

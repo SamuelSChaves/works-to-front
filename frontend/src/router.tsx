@@ -17,6 +17,11 @@ const lazyLoad = <T extends ComponentType<Record<string, unknown>>>(
 const LoginPage = lazyLoad(() =>
   import('./pages/Login').then(module => ({ default: module.Login }))
 )
+const ResetPasswordPage = lazyLoad(() =>
+  import('./pages/ResetPassword').then(module => ({
+    default: module.ResetPassword
+  }))
+)
 const HomePage = lazyLoad(() =>
   import('./pages/Home').then(module => ({ default: module.Home }))
 )
@@ -117,6 +122,14 @@ export const router = createBrowserRouter([
           <LoginPage />
         </SuspenseLoader>
       </RedirectIfAuthenticated>
+    )
+  },
+  {
+    path: '/recuperar-senha',
+    element: (
+      <SuspenseLoader>
+        <ResetPasswordPage />
+      </SuspenseLoader>
     )
   },
   {

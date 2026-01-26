@@ -63,6 +63,25 @@ This script mirrors the PowerShell version but is suitable for POSIX shells. Bot
   ```
   Replace `<secret-value>` with the strong secret used locally so that local `wrangler dev` and the deployed worker share the same signing key.
 
+## Password reset flow
+
+- The worker now exposes `POST /auth/password-reset` and `POST /auth/password-reset/confirm` so users can request a link and then set a new password without logging in.
+- The link points to `${PASSWORD_RESET_FRONTEND_URL}/recuperar-senha?token_id=...&token=...` and the front-end provides a `/recuperar-senha` page that validates the tokens and lets users submit matching passwords.
+- Tokens live in `tb_password_reset`, expire after `PASSWORD_RESET_TOKEN_EXP_MINUTES` (default 30 minutes), and reuse is prevented. The login screen requires the CS field before you can request the link.
+
+### Password reset secrets
+
+Add these environment values alongside `JWT_SECRET`:
+
+1. `PASSWORD_RESET_FRONTEND_URL` – the absolute URL of the front-end (`https://works-to-front.pages.dev` in production) used to build the reset link.
+2. `PASSWORD_RESET_TOKEN_EXP_MINUTES` – optional override for the token lifetime (defaults to `30`).
+3. `PASSWORD_RESET_EMAIL_API_URL` – HTTP endpoint that accepts JSON `{ from, to, subject, text, html }`.
+4. `PASSWORD_RESET_EMAIL_API_KEY` – Bearer token added as `Authorization: Bearer ...`.
+5. `PASSWORD_RESET_EMAIL_FROM` – verified sender address.
+6. `PASSWORD_RESET_EMAIL_SUBJECT` – optional custom subject (defaults to `TO Works · Redefinição de senha`).
+
+Configure them via `.dev.vars` and `wrangler secret put` so the worker can send the recovery email.
+
 ## Verification
 
 After the deploy completes, confirm the worker is reachable:

@@ -225,3 +225,35 @@ export function subscribeToUserChanges(callback: () => void) {
     window.removeEventListener(USER_CHANGE_EVENT, handler)
   }
 }
+
+export type PasswordResetConfirmPayload = {
+  token_id: string
+  token: string
+  senha: string
+}
+
+export async function requestPasswordReset(cs: string): Promise<void> {
+  const response = await fetch(`${API_URL}/auth/password-reset`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cs })
+  })
+  if (!response.ok) {
+    const message = await response.text()
+    throw new Error(message || 'Erro ao solicitar recuperação de senha.')
+  }
+}
+
+export async function confirmPasswordReset(
+  payload: PasswordResetConfirmPayload
+): Promise<void> {
+  const response = await fetch(`${API_URL}/auth/password-reset/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  if (!response.ok) {
+    const message = await response.text()
+    throw new Error(message || 'Erro ao redefinir a senha.')
+  }
+}
