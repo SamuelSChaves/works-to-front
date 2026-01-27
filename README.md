@@ -42,6 +42,8 @@ The script applies the remote schema (`wrangler d1 execute`), seeds the D1 datab
 - ✅ Run the PowerShell or Bash script (`scripts/deploy-worker.*`), which executes the remote schema refresh, build and deploy in one shot.
 - ✅ After deploy, hit `curl https://works-to-backend.workstecnologiaoperacional.workers.dev/health` to verify the worker + D1 respond `{"status":"ok","service":"tecrail-worker"}`.
 
+> Se o `wrangler deploy` falhar com a mensagem `code: 10042` (```Please enable R2 through the Cloudflare Dashboard```), abra o painel da Cloudflare em **Workers & Pages > R2 > Buckets**, ative/crie o bucket `tecrail-acao-attachments` e confirme que `wrangler.toml` está apontando para ele, então execute o deploy novamente.
+
 ## Deployment script (Unix/Bash)
 
 On systems with Bash you can run:
@@ -62,6 +64,29 @@ This script mirrors the PowerShell version but is suitable for POSIX shells. Bot
   wrangler secret put CORS_ORIGIN "http://localhost:5173 https://works-to-front.pages.dev https://*.works-to-front.pages.dev"
   ```
   Replace `<secret-value>` with the strong secret used locally so that local `wrangler dev` and the deployed worker share the same signing key.
+
+### Onde colocar os novos secrets
+
+- **Local**: acréscimo direto em `.dev.vars`. Exemplo mínimo:
+  ```
+  JWT_SECRET=<mesmo-segredo-da-nuvem>
+  CORS_ORIGIN=http://localhost:5173 https://works-to-front.pages.dev https://*.works-to-front.pages.dev
+  PASSWORD_RESET_FRONTEND_URL=https://works-to-front.pages.dev
+  PASSWORD_RESET_EMAIL_API_URL=https://api.resend.com/emails
+  PASSWORD_RESET_EMAIL_API_KEY=<resend-api-key>
+  PASSWORD_RESET_EMAIL_FROM=no-reply@works-to-front.com.br
+  PASSWORD_RESET_EMAIL_SUBJECT="TO Works · Redefinir senha"
+  SECURITY_CODE_EXP_MINUTES=15
+  SECURITY_CODE_EMAIL_SUBJECT="TO Works · Código de segurança"
+  ```
+- **Cloudflare Workers**: use `wrangler secret put` para os valores sensíveis (como `JWT_SECRET`, `PASSWORD_RESET_EMAIL_API_KEY` e `PASSWORD_RESET_EMAIL_FROM`), ou cadastre o segredo na aba *Variables & Secrets* da aba do worker no painel da Cloudflare. No painel, vá em **Workers & Pages > Workers > works-to-backend > Settings > Variables & Secrets**, clique em "Add secret", informe o nome (por exemplo `PASSWORD_RESET_EMAIL_API_KEY`) e cole o token Resend gerado no painel da Resend (https://resend.com/account/api-keys). As variáveis de rotina (URLs, assuntos, TTL) também podem ir pela UI ou via `wrangler secret put VARIABLE_NAME "valor"` para manter tudo alinhado.
+
+### API de email (Resend)
+
+- A API utilizada para enviar o link de recuperação e os códigos de segurança é `https://api.resend.com/emails`. Crie uma chave em https://resend.com/account/api-keys e copie o valor para `PASSWORD_RESET_EMAIL_API_KEY`.
+- O payload enviado ao Resend segue o formato `{ from, to, subject, text, html }`. O worker já monta o texto e o HTML com o nome do usuário e o link/código.
+- O campo `PASSWORD_RESET_EMAIL_FROM` deve ser um e-mail verificado pela Resend; mantenha o assunto padrão ou personalize com `PASSWORD_RESET_EMAIL_SUBJECT`.
+- `PASSWORD_RESET_FRONTEND_URL` define o domínio da UI que receberá o link (por exemplo `https://works-to-front.pages.dev`). O worker só inclui o token nos parâmetros `token_id` e `token`, garantindo um fluxo autorizado.
 
 ## Password reset flow
 
