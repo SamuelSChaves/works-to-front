@@ -5,7 +5,9 @@ import {
   confirmSecurityCode,
   login,
   requestPasswordReset,
-  resendSecurityCode,
+  resendSecurityCode
+} from '../services/auth'
+import type {
   SecurityValidationError,
   SecurityValidationInfo
 } from '../services/auth'
