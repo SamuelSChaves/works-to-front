@@ -64,6 +64,7 @@ This script mirrors the PowerShell version but is suitable for POSIX shells. Bot
   wrangler secret put CORS_ORIGIN "http://localhost:5173 https://works-to-front.pages.dev https://*.works-to-front.pages.dev"
   ```
   Replace `<secret-value>` with the strong secret used locally so that local `wrangler dev` and the deployed worker share the same signing key.
+  If you publish the frontend under another domain (e.g. `https://works-to.com`), append it to the `CORS_ORIGIN` list so the worker replies with `Access-Control-Allow-Origin` matching that hostname.
 
 ### Onde colocar os novos secrets
 
