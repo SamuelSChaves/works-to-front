@@ -1,6 +1,7 @@
-export const API_URL =
+const rawApiUrl =
   // Allow overriding the backend URL via Pages/Env for production builds.
   import.meta.env.VITE_API_URL ?? 'http://localhost:8787'
+export const API_URL = rawApiUrl.replace(/\/+$/, '')
 
 const originalFetch = window.fetch.bind(window)
 
