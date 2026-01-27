@@ -5141,6 +5141,13 @@ async function handleUploadActionAttachment(
   request: Request,
   env: Env
 ): Promise<Response> {
+  const isFileEntry = (value: unknown): value is File => {
+    if (!value || typeof value === 'string') return false
+    return (
+      typeof (value as File).name === 'string' &&
+      typeof (value as File).arrayBuffer === 'function'
+    )
+  }
   assertJwtSecret(env)
   const auth = await requireAuth(request, env)
   if (!auth) {
@@ -5149,12 +5156,11 @@ async function handleUploadActionAttachment(
 
   const formData = await request.formData()
   const acaoId = String(formData.get('acao_id') ?? '').trim()
+  const fileEntry = formData.get('file')
   if (!acaoId) {
     return Response.json({ error: 'acao_id obrigatorio.' }, { status: 400 })
   }
-
-  const fileEntry = formData.get('file')
-  if (!fileEntry || !(fileEntry instanceof File)) {
+  if (!isFileEntry(fileEntry)) {
     return Response.json({ error: 'Arquivo obrigatorio.' }, { status: 400 })
   }
 
@@ -5700,7 +5706,7 @@ async function handleUpdateOrderService(
   const values: Array<string | number | null> = []
 
   const updateOptionalText = (field: keyof OrderServiceRow, value: unknown) => {
-    if (value === undefined) return
+    if (value === undefined) return null
     const normalized = String(value ?? '').trim()
     const finalValue = normalized ? normalized : null
     if ((existing as Record<string, unknown>)[field] === finalValue) return null
@@ -5710,7 +5716,7 @@ async function handleUpdateOrderService(
   }
 
   const updateFlag = (field: keyof OrderServiceRow, value: unknown) => {
-    if (value === undefined) return
+    if (value === undefined) return null
     const normalized = normalizeFlag(value)
     if (normalized === null) {
       return Response.json({ error: `Flag invalida: ${field}.` }, { status: 400 })
@@ -5745,7 +5751,7 @@ async function handleUpdateOrderService(
     return null
   }
 
-  const responses = [
+  const responses: Array<Response | null> = [
     updateOptionalText('os_obs_pcm', payload.os_obs_pcm),
     updateOptionalText('os_obs_tecnico', payload.os_obs_tecnico),
     updateOptionalText('os_programado1', payload.os_programado1),
@@ -5761,9 +5767,9 @@ async function handleUpdateOrderService(
     updateStatus(payload.os_status)
   ]
 
-  const errorResponse = responses.find(item => item instanceof Response) as
-    | Response
-    | undefined
+  const errorResponse = responses.find(
+    (item): item is Response => item !== null
+  )
   if (errorResponse) return errorResponse
 
   if (payload.os_ano !== undefined) {
@@ -7183,12 +7189,14 @@ function getPasswordResetExpirationMinutes(env: Env): number {
 }
 
 function buildPasswordResetLink(env: Env, tokenId: string, token: string): string {
-  const raw = env.PASSWORD_RESET_FRONTEND_URL?.trim() || 'http://localhost:5173'
+  const raw =
+    env.PASSWORD_RESET_FRONTEND_URL?.trim() ||
+    'https://works-to-front.pages.dev'
   let base: URL
   try {
     base = new URL(raw)
   } catch {
-    base = new URL('http://localhost:5173')
+    base = new URL('https://works-to-front.pages.dev')
   }
   base.pathname = PASSWORD_RESET_PAGE_PATH
   base.searchParams.set(PASSWORD_RESET_ID_QUERY, tokenId)
