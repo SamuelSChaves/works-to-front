@@ -216,23 +216,24 @@ export function Login() {
             </div>
           )}
 
-          <button
-            type="submit"
-            disabled={
-              isLoading ||
-              Boolean(securityChallenge) ||
-              (modoRecuperar && !/^[0-9]{6}$/.test(cs))
-            }
-            style={buttonStyle}
-          >
-            {modoRecuperar
-              ? isLoading
-                ? 'Enviando...'
-                : 'Enviar link'
-              : isLoading
-                ? 'Entrando...'
-                : 'Acessar'}
-          </button>
+          {!securityChallenge && (
+            <button
+              type="submit"
+              disabled={
+                isLoading ||
+                (modoRecuperar && !/^[0-9]{6}$/.test(cs))
+              }
+              style={buttonStyle}
+            >
+              {modoRecuperar
+                ? isLoading
+                  ? 'Enviando...'
+                  : 'Enviar link'
+                : isLoading
+                  ? 'Entrando...'
+                  : 'Acessar'}
+            </button>
+          )}
         </form>
 
         {securityChallenge && (
@@ -286,20 +287,22 @@ export function Login() {
           </div>
         )}
 
-        <button
-          type="button"
-          onClick={() => {
-            setModoRecuperar(!modoRecuperar)
-            setError(null)
-            setSuccessMessage(null)
-            setSecurityChallenge(null)
-            setSecurityCode('')
-            setSecurityError(null)
-          }}
-          style={linkButton}
-        >
-          {modoRecuperar ? 'Voltar para login' : 'Recuperar senha'}
-        </button>
+        {!securityChallenge && (
+          <button
+            type="button"
+            onClick={() => {
+              setModoRecuperar(!modoRecuperar)
+              setError(null)
+              setSuccessMessage(null)
+              setSecurityChallenge(null)
+              setSecurityCode('')
+              setSecurityError(null)
+            }}
+            style={linkButton}
+          >
+            {modoRecuperar ? 'Voltar para login' : 'Recuperar senha'}
+          </button>
+        )}
       </div>
     </div>
   )
