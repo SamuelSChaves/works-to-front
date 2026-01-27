@@ -1,0 +1,3 @@
+# Cloudflare Pages config for the frontend
+pages_build_output_dir = "dist"
+name = "works-to-front"
