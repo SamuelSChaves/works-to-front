@@ -21,6 +21,16 @@ export type User = {
   profileName?: string
 }
 
+export type SecurityValidationInfo = {
+  challenge_id: string
+  expires_at: string
+  email_hint?: string
+}
+
+export interface SecurityValidationError extends Error {
+  securityValidation?: SecurityValidationInfo
+}
+
 export type Permissions = Record<
   string,
   { leitura: boolean; criacao: boolean; edicao: boolean; exclusao: boolean }
@@ -142,40 +152,29 @@ export async function login(cs: string, senha: string) {
     body: JSON.stringify({ cs, senha })
   })
 
+  const text = await response.text()
+  let payload: Record<string, unknown> | null = null
+  if (text) {
+    try {
+      payload = JSON.parse(text) as Record<string, unknown>
+    } catch {
+      payload = null
+    }
+  }
+
+  const data = payload ?? {}
+
   if (!response.ok) {
-    const error = await response.text()
-    throw new Error(error || 'Erro ao efetuar login')
+    const error = new Error(
+      (data?.error as string) || 'Erro ao efetuar login'
+    ) as SecurityValidationError
+    if (data?.security_validation) {
+      error.securityValidation = data.security_validation as SecurityValidationInfo
+    }
+    throw error
   }
 
-  const payload = await response.json()
-  const rawUser = payload.user || {}
-  const normalizedUser: User = {
-    id: rawUser.id,
-    nome: rawUser.nome,
-    email: rawUser.email,
-    cargo: rawUser.cargo,
-    empresaId: rawUser.company_id,
-    coordenacaoId: rawUser.coordenacao,
-    equipeId: rawUser.equipe,
-    profileId: rawUser.profile_id,
-    profileName: rawUser.profile_name
-  }
-  if (rawUser.role || rawUser.profile_name || rawUser.cargo) {
-    normalizedUser.role = rawUser.role || rawUser.profile_name || rawUser.cargo
-  }
-
-  setStoredUser(normalizedUser)
-  if (payload.token) {
-    setStoredToken(payload.token)
-  }
-
-  try {
-    await fetchPermissions()
-  } catch {
-    // ignore permissions failure on login
-  }
-
-  return normalizedUser
+  return handleAuthSuccess(data)
 }
 
 export async function fetchPermissions(): Promise<Permissions> {
@@ -256,4 +255,86 @@ export async function confirmPasswordReset(
     const message = await response.text()
     throw new Error(message || 'Erro ao redefinir a senha.')
   }
+}
+
+export async function confirmSecurityCode(
+  challengeId: string,
+  code: string
+): Promise<User> {
+  const response = await fetch(`${API_URL}/auth/security-code/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ challenge_id: challengeId, code })
+  })
+
+  const text = await response.text()
+  let payload: Record<string, unknown> | null = null
+  if (text) {
+    try {
+      payload = JSON.parse(text) as Record<string, unknown>
+    } catch {
+      payload = null
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      (payload?.error as string) || 'Erro ao confirmar o código de segurança.'
+    )
+  }
+
+  return handleAuthSuccess(payload ?? {})
+}
+
+export async function resendSecurityCode(
+  challengeId: string
+): Promise<SecurityValidationInfo | null> {
+  const response = await fetch(`${API_URL}/auth/security-code/resend`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ challenge_id: challengeId })
+  })
+
+  const payload = await response.json().catch(() => ({} as Record<string, unknown>))
+  if (!response.ok) {
+    throw new Error(
+      (payload?.error as string) || 'Erro ao reenviar o código de segurança.'
+    )
+  }
+
+  return (payload?.security_validation as SecurityValidationInfo) ?? null
+}
+
+async function handleAuthSuccess(payload: Record<string, unknown>): Promise<User> {
+  const rawUser = (payload.user || {}) as Record<string, unknown>
+  const normalizedUser: User = {
+    id: String(rawUser.id ?? ''),
+    nome: String(rawUser.nome ?? ''),
+    email: rawUser.email as string | undefined,
+    cargo: rawUser.cargo as string | undefined,
+    empresaId: rawUser.company_id as string | undefined,
+    coordenacaoId: rawUser.coordenacao as string | undefined,
+    equipeId: rawUser.equipe as string | undefined,
+    profileId: rawUser.profile_id as string | undefined,
+    profileName: rawUser.profile_name as string | undefined
+  }
+  if (rawUser.role || rawUser.profile_name || rawUser.cargo) {
+    normalizedUser.role =
+      (rawUser.role as string | undefined) ||
+      (rawUser.profile_name as string | undefined) ||
+      (rawUser.cargo as string | undefined)
+  }
+
+  setStoredUser(normalizedUser)
+  if (payload.token && typeof payload.token === 'string') {
+    setStoredToken(payload.token)
+  }
+
+  try {
+    await fetchPermissions()
+  } catch {
+    // ignore permissions failure on login
+  }
+
+  return normalizedUser
 }

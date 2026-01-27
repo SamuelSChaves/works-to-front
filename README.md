@@ -69,6 +69,8 @@ This script mirrors the PowerShell version but is suitable for POSIX shells. Bot
 - The link points to `${PASSWORD_RESET_FRONTEND_URL}/recuperar-senha?token_id=...&token=...` and the front-end provides a `/recuperar-senha` page that validates the tokens and lets users submit matching passwords.
 - Tokens live in `tb_password_reset`, expire after `PASSWORD_RESET_TOKEN_EXP_MINUTES` (default 30 minutes), and reuse is prevented. The login screen requires the CS field before you can request the link.
 
+- In addition to password resets, login now requires a six-digit security code for users who never logged in or whose last validation is older than 30 days. The endpoints `POST /auth/security-code/confirm` and `POST /auth/security-code/resend` drive that flow and return the usual session bundle when the code is confirmed. The UI shows a masked email hint plus the expiration countdown.
+
 ### Password reset secrets
 
 Add these environment values alongside `JWT_SECRET`:
@@ -81,6 +83,12 @@ Add these environment values alongside `JWT_SECRET`:
 6. `PASSWORD_RESET_EMAIL_SUBJECT` – optional custom subject (defaults to `TO Works · Redefinição de senha`).
 
 Configure them via `.dev.vars` and `wrangler secret put` so the worker can send the recovery email.
+
+### Security validation secrets
+
+1. `SECURITY_CODE_EXP_MINUTES` - TTL for the six-digit code (defaults to `15`).
+2. `SECURITY_CODE_EMAIL_SUBJECT` - optional custom subject for the security-code email (defaults to `TO Works · Código de segurança`).
+
 
 ## Verification
 

@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS tb_user (
   equipe TEXT,
   equipe_aditiva TEXT,
   status TEXT NOT NULL CHECK (status IN ('ativo', 'inativo')),
+  security_validated_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (company_id) REFERENCES tb_company (id) ON DELETE CASCADE,
@@ -52,6 +53,25 @@ CREATE TABLE IF NOT EXISTS tb_user_auth (
   locked_until TEXT,
   FOREIGN KEY (user_id) REFERENCES tb_user (id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS tb_security_validation (
+  id TEXT PRIMARY KEY,
+  company_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  cs TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'used', 'revoked')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  used_at TEXT,
+  revoked_at TEXT,
+  FOREIGN KEY (company_id) REFERENCES tb_company (id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES tb_user (id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_security_validation_user
+ON tb_security_validation (user_id, status);
 
 CREATE TABLE IF NOT EXISTS tb_password_reset (
   id TEXT PRIMARY KEY,

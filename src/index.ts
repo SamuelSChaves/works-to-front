@@ -13,6 +13,8 @@ export interface Env {
   PASSWORD_RESET_EMAIL_API_KEY?: string
   PASSWORD_RESET_EMAIL_FROM?: string
   PASSWORD_RESET_EMAIL_SUBJECT?: string
+  SECURITY_CODE_EXP_MINUTES?: string
+  SECURITY_CODE_EMAIL_SUBJECT?: string
   ATTACHMENTS: R2Bucket
 }
 
@@ -50,6 +52,7 @@ type UserRow = {
   status: string
   created_at?: string
   updated_at?: string
+  security_validated_at?: string | null
 }
 
 type UserWithCompanyRow = UserRow & {
@@ -62,6 +65,19 @@ type UserAuthRow = {
   last_login_at: string | null
   failed_attempts: number
   locked_until: string | null
+}
+
+type SecurityValidationRow = {
+  id: string
+  company_id: string
+  user_id: string
+  cs: string
+  code_hash: string
+  expires_at: string
+  status: 'pending' | 'used' | 'revoked'
+  attempts: number
+  created_at: string
+  used_at: string | null
 }
 
 type UserHistoryRow = {
@@ -670,6 +686,9 @@ const PASSWORD_RESET_ID_QUERY = 'token_id'
 const PASSWORD_RESET_TOKEN_QUERY = 'token'
 const DEFAULT_PASSWORD_RESET_EXP_MINUTES = 30
 const DEFAULT_PASSWORD_RESET_EMAIL_SUBJECT = 'TO Works · Redefinição de senha'
+const DEFAULT_SECURITY_CODE_EXP_MINUTES = 15
+const DEFAULT_SECURITY_VALIDATION_INTERVAL_DAYS = 30
+const DEFAULT_SECURITY_CODE_EMAIL_SUBJECT = 'TO Works · Código de segurança'
 
 type PendingSessionRefresh = {
   token: string
@@ -767,6 +786,10 @@ export default {
           return respond(await handlePasswordResetRequest(request, env), env)
         case 'POST /auth/password-reset/confirm':
           return respond(await handlePasswordResetConfirm(request, env), env)
+        case 'POST /auth/security-code/confirm':
+          return respond(await handleSecurityCodeConfirm(request, env), env)
+        case 'POST /auth/security-code/resend':
+          return respond(await handleSecurityCodeResend(request, env), env)
         case 'POST /admin/users':
           return respond(await handleCreateUser(request, env), env)
         case 'GET /admin/users':
@@ -1067,17 +1090,65 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
   }
 
   await env.DB
-    .prepare('UPDATE tb_user_auth SET failed_attempts = 0, locked_until = NULL, last_login_at = ? WHERE user_id = ?')
-    .bind(now.toISOString(), user.id)
+    .prepare('UPDATE tb_user_auth SET failed_attempts = 0, locked_until = NULL WHERE user_id = ?')
+    .bind(user.id)
     .run()
 
-  await revokeActiveSessionsForUser(env, user.id, companyId)
-  const sessionId = await createUserSession(env, companyId, user.id, clientIp)
+  if (shouldRequireSecurityValidation(user.security_validated_at)) {
+    await logLoginAttempt(env, {
+      success: 0,
+      reason: 'security_validation_required',
+      companyId,
+      userId: user.id,
+      cs,
+      email: user.email,
+      ip: clientIp,
+      userAgent: request.headers.get('user-agent')
+    })
+    try {
+      const challenge = await createSecurityValidationChallenge(env, user)
+      return Response.json(
+        {
+          error: 'security_validation_required',
+          security_validation: challenge
+        },
+        { status: 428 }
+      )
+    } catch (error) {
+      console.error('Erro ao criar desafio de segurança:', error)
+      return Response.json(
+        { error: 'Não foi possível enviar o código de segurança.' },
+        { status: 500 }
+      )
+    }
+  }
+
+  return finalizeLogin(request, env, user, clientIp, cs)
+}
+
+async function finalizeLogin(
+  request: Request,
+  env: Env,
+  user: UserRow,
+  clientIp: string | null,
+  cs: string
+): Promise<Response> {
+  const now = new Date()
+  const nowIso = now.toISOString()
+  await env.DB
+    .prepare(
+      'UPDATE tb_user_auth SET failed_attempts = 0, locked_until = NULL, last_login_at = ? WHERE user_id = ?'
+    )
+    .bind(nowIso, user.id)
+    .run()
+
+  await revokeActiveSessionsForUser(env, user.id, user.company_id)
+  const sessionId = await createUserSession(env, user.company_id, user.id, clientIp)
 
   await logLoginAttempt(env, {
     success: 1,
     reason: 'login_success',
-    companyId,
+    companyId: user.company_id,
     userId: user.id,
     cs,
     email: user.email,
@@ -1089,7 +1160,7 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
   const token = await signJwt(
     {
       user_id: user.id,
-      company_id: companyId,
+      company_id: user.company_id,
       nome: user.nome,
       cargo: user.cargo,
       equipe: user.equipe,
@@ -1104,7 +1175,7 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
     token,
     user: {
       id: user.id,
-      company_id: companyId,
+      company_id: user.company_id,
       nome: user.nome,
       email: user.email,
       cargo: user.cargo,
@@ -1115,6 +1186,112 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
   })
   response.headers.set('Set-Cookie', cookie)
   return response
+}
+
+async function handleSecurityCodeConfirm(
+  request: Request,
+  env: Env
+): Promise<Response> {
+  const payload = await readJson(request)
+  const challengeId = String(payload?.challenge_id || '').trim()
+  const code = String(payload?.code || '').trim()
+  const clientIp = getClientIp(request)
+
+  if (!challengeId || !code) {
+    return Response.json({ error: 'Dados invalidos.' }, { status: 400 })
+  }
+
+  const challenge = await getSecurityValidationChallenge(env, challengeId)
+  if (!challenge || challenge.status !== 'pending') {
+    return Response.json({ error: 'Código inválido ou expirado.' }, { status: 400 })
+  }
+
+  const expiresAt = new Date(challenge.expires_at)
+  if (expiresAt.getTime() <= Date.now()) {
+    return Response.json({ error: 'Código inválido ou expirado.' }, { status: 400 })
+  }
+
+  const expectedHash = await hashResetToken(code)
+  if (expectedHash !== challenge.code_hash) {
+    await env.DB
+      .prepare('UPDATE tb_security_validation SET attempts = attempts + 1 WHERE id = ?')
+      .bind(challengeId)
+      .run()
+    return Response.json({ error: 'Código inválido.' }, { status: 400 })
+  }
+
+  const nowIso = new Date().toISOString()
+  await env.DB
+    .prepare('UPDATE tb_security_validation SET status = ?, used_at = ? WHERE id = ?')
+    .bind('used', nowIso, challengeId)
+    .run()
+
+  await env.DB
+    .prepare(
+      'UPDATE tb_user SET security_validated_at = ?, updated_at = ? WHERE id = ? AND company_id = ?'
+    )
+    .bind(nowIso, nowIso, challenge.user_id, challenge.company_id)
+    .run()
+
+  const user = await env.DB
+    .prepare(
+      `SELECT u.*, c.status AS company_status, p.name AS profile_name
+       FROM tb_user u
+       LEFT JOIN tb_company c ON c.id = u.company_id
+       LEFT JOIN tb_profile p ON p.id = u.profile_id
+       WHERE u.id = ? AND u.company_id = ?`
+    )
+    .bind(challenge.user_id, challenge.company_id)
+    .first<UserWithCompanyRow>()
+
+  if (!user || user.company_status !== 'ativo' || user.status !== 'ativo') {
+    return Response.json({ error: 'Código inválido.' }, { status: 400 })
+  }
+
+  return finalizeLogin(request, env, user, clientIp, challenge.cs)
+}
+
+async function handleSecurityCodeResend(
+  request: Request,
+  env: Env
+): Promise<Response> {
+  const payload = await readJson(request)
+  const challengeId = String(payload?.challenge_id || '').trim()
+
+  if (!challengeId) {
+    return Response.json({ ok: true })
+  }
+
+  const existing = await getSecurityValidationChallenge(env, challengeId)
+  if (!existing || existing.status !== 'pending') {
+    return Response.json({ ok: true })
+  }
+
+  const user = await env.DB
+    .prepare(
+      `SELECT u.*, c.status AS company_status, p.name AS profile_name
+       FROM tb_user u
+       LEFT JOIN tb_company c ON c.id = u.company_id
+       LEFT JOIN tb_profile p ON p.id = u.profile_id
+       WHERE u.id = ? AND u.company_id = ?`
+    )
+    .bind(existing.user_id, existing.company_id)
+    .first<UserWithCompanyRow>()
+
+  if (!user || user.company_status !== 'ativo' || user.status !== 'ativo') {
+    return Response.json({ ok: true })
+  }
+
+  try {
+    const challenge = await createSecurityValidationChallenge(env, user)
+    return Response.json({ security_validation: challenge })
+  } catch (error) {
+    console.error('Erro ao reenviar código de segurança:', error)
+    return Response.json(
+      { error: 'Não foi possível reenviar o código.' },
+      { status: 500 }
+    )
+  }
 }
 
 async function handleAuthMe(request: Request, env: Env): Promise<Response> {
@@ -6952,6 +7129,40 @@ function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 }
 
+function maskEmailForHint(email: string): string {
+  const [local, domain] = email.split('@')
+  if (!domain) return email
+  if (local.length <= 2) {
+    return `**@${domain}`
+  }
+  const visible = local.slice(0, 1)
+  const hidden = '*'.repeat(Math.min(local.length - 1, 3))
+  return `${visible}${hidden}@${domain}`
+}
+
+function generateSecurityCode(): string {
+  const array = new Uint32Array(1)
+  crypto.getRandomValues(array)
+  const number = array[0] % 1000000
+  return String(number).padStart(6, '0')
+}
+
+function getSecurityCodeExpirationMinutes(env: Env): number {
+  const parsed = parseInt(env.SECURITY_CODE_EXP_MINUTES || '', 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_SECURITY_CODE_EXP_MINUTES
+  }
+  return parsed
+}
+
+function shouldRequireSecurityValidation(lastValidatedAt?: string | null): boolean {
+  if (!lastValidatedAt) return true
+  const validatedMs = Date.parse(lastValidatedAt)
+  if (Number.isNaN(validatedMs)) return true
+  const intervalMs = DEFAULT_SECURITY_VALIDATION_INTERVAL_DAYS * 24 * 60 * 60 * 1000
+  return validatedMs + intervalMs <= Date.now()
+}
+
 async function hashResetToken(token: string): Promise<string> {
   const digest = await crypto.subtle.digest(
     'SHA-256',
@@ -7023,12 +7234,119 @@ async function sendPasswordResetEmail(
     })
   })
 
+    if (!response.ok) {
+      const errorBody = await response.text()
+      throw new Error(
+        `Falha ao enviar email de recuperação: ${response.status} ${errorBody}`
+      )
+    }
+}
+
+async function sendSecurityCodeEmail(
+  env: Env,
+  user: UserRow,
+  code: string,
+  expiresMinutes: number
+): Promise<void> {
+  const apiUrl = env.PASSWORD_RESET_EMAIL_API_URL?.trim()
+  const apiKey = env.PASSWORD_RESET_EMAIL_API_KEY?.trim()
+  const from = env.PASSWORD_RESET_EMAIL_FROM?.trim()
+  if (!apiUrl || !apiKey || !from) {
+    throw new Error('Serviço de email para segurança não configurado.')
+  }
+
+  const subject =
+    env.SECURITY_CODE_EMAIL_SUBJECT?.trim() || DEFAULT_SECURITY_CODE_EMAIL_SUBJECT
+  const plain = `Olá ${user.nome},\n\nInforme o código abaixo para continuar. O código expira em ${expiresMinutes} minutos.\n\n${code}\n\nSe você não solicitou esse código, ignore esta mensagem.\n`
+  const html = `
+    <p>Olá ${user.nome},</p>
+    <p>Informe o código abaixo para continuar.</p>
+    <p style="font-weight:600;font-size:1.4rem">${code}</p>
+    <p>O código expira em ${expiresMinutes} minutos. Se você não solicitou, ignore esta mensagem.</p>
+  `
+
+  const response = await fetch(apiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      from,
+      to: user.email,
+      subject,
+      text: plain,
+      html
+    })
+  })
+
   if (!response.ok) {
     const errorBody = await response.text()
     throw new Error(
-      `Falha ao enviar email de recuperação: ${response.status} ${errorBody}`
+      `Falha ao enviar código de segurança: ${response.status} ${errorBody}`
     )
   }
+}
+
+async function createSecurityValidationChallenge(
+  env: Env,
+  user: UserRow
+): Promise<{ challenge_id: string; expires_at: string; email_hint: string }> {
+  await env.DB
+    .prepare(
+      `UPDATE tb_security_validation
+       SET status = 'revoked', revoked_at = ?
+       WHERE user_id = ? AND status = 'pending'`
+    )
+    .bind(new Date().toISOString(), user.id)
+    .run()
+
+  const expiresMinutes = getSecurityCodeExpirationMinutes(env)
+  const expiresAt = new Date(
+    Date.now() + expiresMinutes * 60 * 1000
+  ).toISOString()
+  const challengeId = crypto.randomUUID()
+  const code = generateSecurityCode()
+  const codeHash = await hashResetToken(code)
+
+  await env.DB
+    .prepare(
+      `INSERT INTO tb_security_validation (
+         id, company_id, user_id, cs, code_hash, expires_at, status
+       ) VALUES (?, ?, ?, ?, ?, ?, 'pending')`
+    )
+    .bind(challengeId, user.company_id, user.id, user.cs, codeHash, expiresAt)
+    .run()
+
+  try {
+    await sendSecurityCodeEmail(env, user, code, expiresMinutes)
+  } catch (error) {
+    await env.DB
+      .prepare('DELETE FROM tb_security_validation WHERE id = ?')
+      .bind(challengeId)
+      .run()
+    throw error
+  }
+
+  return {
+    challenge_id: challengeId,
+    expires_at: expiresAt,
+    email_hint: maskEmailForHint(user.email)
+  }
+}
+
+async function getSecurityValidationChallenge(
+  env: Env,
+  challengeId: string
+): Promise<SecurityValidationRow | null> {
+  return env.DB
+    .prepare(
+      `SELECT id, company_id, user_id, cs, code_hash, expires_at, status, attempts
+       FROM tb_security_validation
+       WHERE id = ?`
+    )
+    .bind(challengeId)
+    .first<SecurityValidationRow>()
 }
 
 async function readJson(request: Request): Promise<Record<string, unknown> | null> {

@@ -2,8 +2,12 @@
 import { useNavigate } from 'react-router-dom'
 import {
   consumePostLoginRedirect,
+  confirmSecurityCode,
   login,
-  requestPasswordReset
+  requestPasswordReset,
+  resendSecurityCode,
+  SecurityValidationError,
+  SecurityValidationInfo
 } from '../services/auth'
 import logo from '../assets/ToWorks.png'
 import {
@@ -30,6 +34,19 @@ export function Login() {
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [securityChallenge, setSecurityChallenge] =
+    useState<SecurityValidationInfo | null>(null)
+  const [securityCode, setSecurityCode] = useState('')
+  const [securityError, setSecurityError] = useState<string | null>(null)
+  const [isSecurityLoading, setIsSecurityLoading] = useState(false)
+
+  const isSecurityValidationError = (
+    value: unknown
+  ): value is SecurityValidationError =>
+    typeof value === 'object' &&
+    value !== null &&
+    'securityValidation' in value &&
+    Boolean((value as SecurityValidationError).securityValidation)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -71,10 +88,25 @@ export function Login() {
     setSuccessMessage(null)
     try {
       setIsLoading(true)
+      setSecurityChallenge(null)
+      setSecurityCode('')
+      setSecurityError(null)
       await login(cs, senha)
       const redirect = consumePostLoginRedirect()
       navigate(redirect || '/app')
     } catch (err) {
+      if (isSecurityValidationError(err) && err.securityValidation) {
+        const info = err.securityValidation
+        setSecurityChallenge(info)
+        setSecurityCode('')
+        setSecurityError(null)
+        setSuccessMessage(
+          `Enviamos um código de segurança para ${
+            info.email_hint ?? 'seu email cadastrado'
+          }.`
+        )
+        return
+      }
       setError(
         err instanceof Error
           ? err.message
@@ -82,6 +114,55 @@ export function Login() {
       )
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  async function handleSecurityConfirm() {
+    if (!securityChallenge) return
+    if (!/^[0-9]{6}$/.test(securityCode)) {
+      setSecurityError('Informe o código com 6 dígitos')
+      return
+    }
+    setSecurityError(null)
+    try {
+      setIsSecurityLoading(true)
+      await confirmSecurityCode(securityChallenge.challenge_id, securityCode)
+      const redirect = consumePostLoginRedirect()
+      navigate(redirect || '/app')
+    } catch (err) {
+      setSecurityError(
+        err instanceof Error
+          ? err.message
+          : 'Não foi possível confirmar o código.'
+      )
+    } finally {
+      setIsSecurityLoading(false)
+    }
+  }
+
+  async function handleSecurityResend() {
+    if (!securityChallenge) return
+    setSecurityError(null)
+    try {
+      setIsSecurityLoading(true)
+      const nextChallenge = await resendSecurityCode(securityChallenge.challenge_id)
+      if (nextChallenge) {
+        setSecurityChallenge(nextChallenge)
+        setSecurityCode('')
+        setSuccessMessage(
+          `Enviamos o código novamente para ${
+            nextChallenge.email_hint ?? 'seu email cadastrado'
+          }.`
+        )
+      }
+    } catch (err) {
+      setSecurityError(
+        err instanceof Error
+          ? err.message
+          : 'Não foi possível reenviar o código.'
+      )
+    } finally {
+      setIsSecurityLoading(false)
     }
   }
 
@@ -135,7 +216,11 @@ export function Login() {
 
           <button
             type="submit"
-            disabled={isLoading || (modoRecuperar && !/^[0-9]{6}$/.test(cs))}
+            disabled={
+              isLoading ||
+              Boolean(securityChallenge) ||
+              (modoRecuperar && !/^[0-9]{6}$/.test(cs))
+            }
             style={buttonStyle}
           >
             {modoRecuperar
@@ -148,12 +233,66 @@ export function Login() {
           </button>
         </form>
 
+        {securityChallenge && (
+          <div style={{ marginTop: 16, textAlign: 'center' }}>
+            <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 10 }}>
+              Enviamos um código de segurança para{' '}
+              <strong>{securityChallenge.email_hint ?? 'seu email cadastrado'}</strong>. O
+              código expira em{' '}
+              <strong>
+                {new Date(securityChallenge.expires_at).toLocaleString('pt-BR', {
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })}
+              </strong>
+              .
+            </div>
+
+            <label style={labelStyle}>Código de segurança</label>
+            <input
+              type="text"
+              value={securityCode}
+              onChange={e =>
+                setSecurityCode(e.target.value.replace(/\D/g, '').slice(0, 6))
+              }
+              placeholder=""
+              inputMode="numeric"
+              style={inputStyle}
+            />
+
+            {securityError && <div style={errorStyle}>⚠ {securityError}</div>}
+
+            <button
+              type="button"
+              onClick={handleSecurityConfirm}
+              disabled={
+                isSecurityLoading || !/^[0-9]{6}$/.test(securityCode)
+              }
+              style={buttonStyle}
+            >
+              {isSecurityLoading ? 'Validando...' : 'Confirmar código'}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleSecurityResend}
+              disabled={isSecurityLoading}
+              style={{ ...linkButton, marginTop: 8 }}
+            >
+              {isSecurityLoading ? 'Reenviando...' : 'Reenviar código'}
+            </button>
+          </div>
+        )}
+
         <button
           type="button"
           onClick={() => {
             setModoRecuperar(!modoRecuperar)
             setError(null)
             setSuccessMessage(null)
+            setSecurityChallenge(null)
+            setSecurityCode('')
+            setSecurityError(null)
           }}
           style={linkButton}
         >
