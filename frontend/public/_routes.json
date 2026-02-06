@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "routes": [
+    {
+      "pattern": "/confirmar-login",
+      "path": "/index.html"
+    },
+    {
+      "pattern": "/confirmar-login/*",
+      "path": "/index.html"
+    }
+  ]
+}

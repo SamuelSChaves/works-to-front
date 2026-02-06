@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS tb_user (
   equipe_aditiva TEXT,
   status TEXT NOT NULL CHECK (status IN ('ativo', 'inativo')),
   security_validated_at TEXT,
+  trusted_login_ip TEXT,
+  trusted_login_ip_verified_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (company_id) REFERENCES tb_company (id) ON DELETE CASCADE,
@@ -87,6 +89,25 @@ CREATE TABLE IF NOT EXISTS tb_password_reset (
 
 CREATE INDEX IF NOT EXISTS idx_password_reset_user
 ON tb_password_reset (user_id);
+
+CREATE TABLE IF NOT EXISTS tb_login_link (
+  id TEXT PRIMARY KEY,
+  company_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  token_hash TEXT NOT NULL,
+  ip TEXT,
+  expires_at TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'used', 'revoked')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  used_at TEXT,
+  revoked_at TEXT,
+  FOREIGN KEY (company_id) REFERENCES tb_company (id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES tb_user (id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_login_link_user
+ON tb_login_link (user_id, status);
 
 CREATE TABLE IF NOT EXISTS tb_login_log (
   id TEXT PRIMARY KEY,
@@ -261,10 +282,31 @@ CREATE TABLE IF NOT EXISTS tb_acao (
   texto_acao TEXT,
   texto_enerramento TEXT,
   texto_devolutiva TEXT,
+  incidente_codigo TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (company_id) REFERENCES tb_company (id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS tb_incidente (
+  id TEXT PRIMARY KEY,
+  company_id TEXT NOT NULL,
+  codigo TEXT NOT NULL,
+  titulo TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('Aberto', 'Em andamento', 'Concluído')),
+  severity TEXT NOT NULL CHECK (severity IN ('Baixa', 'Média', 'Alta', 'Crítica')),
+  responsavel TEXT NOT NULL,
+  relator TEXT NOT NULL,
+  descricao TEXT NOT NULL,
+  plano_acao TEXT NOT NULL,
+  anexos TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT,
+  FOREIGN KEY (company_id) REFERENCES tb_company (id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_tb_incidente_company_codigo
+  ON tb_incidente (company_id, codigo);
 
 CREATE TABLE IF NOT EXISTS tb_acao_anexo (
   id TEXT PRIMARY KEY,

@@ -2,15 +2,11 @@
 import { useNavigate } from 'react-router-dom'
 import {
   consumePostLoginRedirect,
-  confirmSecurityCode,
   login,
   requestPasswordReset,
-  resendSecurityCode
+  resendLoginLink
 } from '../services/auth'
-import type {
-  SecurityValidationError,
-  SecurityValidationInfo
-} from '../services/auth'
+import type { LoginLinkError, LoginLinkInfo } from '../services/auth'
 import logo from '../assets/ToWorks.png'
 import {
   buttonStyle,
@@ -36,19 +32,14 @@ export function Login() {
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [securityChallenge, setSecurityChallenge] =
-    useState<SecurityValidationInfo | null>(null)
-  const [securityCode, setSecurityCode] = useState('')
-  const [securityError, setSecurityError] = useState<string | null>(null)
-  const [isSecurityLoading, setIsSecurityLoading] = useState(false)
+  const [linkChallenge, setLinkChallenge] = useState<LoginLinkInfo | null>(null)
+  const [isResendLoading, setIsResendLoading] = useState(false)
 
-  const isSecurityValidationError = (
-    value: unknown
-  ): value is SecurityValidationError =>
+  const isLoginLinkError = (value: unknown): value is LoginLinkError =>
     typeof value === 'object' &&
     value !== null &&
-    'securityValidation' in value &&
-    Boolean((value as SecurityValidationError).securityValidation)
+    'loginLink' in value &&
+    Boolean((value as LoginLinkError).loginLink)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -86,24 +77,20 @@ export function Login() {
       return
     }
 
-    setError(null)
-    setSuccessMessage(null)
     try {
       setIsLoading(true)
-      setSecurityChallenge(null)
-      setSecurityCode('')
-      setSecurityError(null)
+      setLinkChallenge(null)
+      setSuccessMessage(null)
+      setError(null)
       await login(cs, senha)
       const redirect = consumePostLoginRedirect()
       navigate(redirect || '/app')
     } catch (err) {
-      if (isSecurityValidationError(err) && err.securityValidation) {
-        const info = err.securityValidation
-        setSecurityChallenge(info)
-        setSecurityCode('')
-        setSecurityError(null)
+      if (isLoginLinkError(err) && err.loginLink) {
+        const info = err.loginLink
+        setLinkChallenge(info)
         setSuccessMessage(
-          `Enviamos um código de segurança para ${
+          `Enviamos um link de acesso para ${
             info.email_hint ?? 'seu email cadastrado'
           }.`
         )
@@ -119,53 +106,36 @@ export function Login() {
     }
   }
 
-  async function handleSecurityConfirm() {
-    if (!securityChallenge) return
-    if (!/^[0-9]{6}$/.test(securityCode)) {
-      setSecurityError('Informe o código com 6 dígitos')
-      return
-    }
-    setSecurityError(null)
+  async function handleResendLink() {
+    if (!linkChallenge) return
+    setError(null)
+    setSuccessMessage(null)
     try {
-      setIsSecurityLoading(true)
-      await confirmSecurityCode(securityChallenge.challenge_id, securityCode)
-      const redirect = consumePostLoginRedirect()
-      navigate(redirect || '/app')
-    } catch (err) {
-      setSecurityError(
-        err instanceof Error
-          ? err.message
-          : 'Não foi possível confirmar o código.'
-      )
-    } finally {
-      setIsSecurityLoading(false)
-    }
-  }
-
-  async function handleSecurityResend() {
-    if (!securityChallenge) return
-    setSecurityError(null)
-    try {
-      setIsSecurityLoading(true)
-      const nextChallenge = await resendSecurityCode(securityChallenge.challenge_id)
-      if (nextChallenge) {
-        setSecurityChallenge(nextChallenge)
-        setSecurityCode('')
+      setIsResendLoading(true)
+      const next = await resendLoginLink(linkChallenge.link_id)
+      if (next) {
+        setLinkChallenge(next)
         setSuccessMessage(
-          `Enviamos o código novamente para ${
-            nextChallenge.email_hint ?? 'seu email cadastrado'
+          `Enviamos o link novamente para ${
+            next.email_hint ?? 'seu email cadastrado'
           }.`
         )
       }
     } catch (err) {
-      setSecurityError(
+      setError(
         err instanceof Error
           ? err.message
-          : 'Não foi possível reenviar o código.'
+          : 'Não foi possível reenviar o link.'
       )
     } finally {
-      setIsSecurityLoading(false)
+      setIsResendLoading(false)
     }
+  }
+
+  function handleCancelLink() {
+    setLinkChallenge(null)
+    setSuccessMessage(null)
+    setError(null)
   }
 
   return (
@@ -216,7 +186,7 @@ export function Login() {
             </div>
           )}
 
-          {!securityChallenge && (
+          {!linkChallenge && (
             <button
               type="submit"
               disabled={
@@ -236,14 +206,13 @@ export function Login() {
           )}
         </form>
 
-        {securityChallenge && (
+        {linkChallenge && (
           <div style={{ marginTop: 16, textAlign: 'center' }}>
             <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 10 }}>
-              Enviamos um código de segurança para{' '}
-              <strong>{securityChallenge.email_hint ?? 'seu email cadastrado'}</strong>. O
-              código expira em{' '}
+              Enviamos um link de acesso para{' '}
+              <strong>{linkChallenge.email_hint ?? 'seu email cadastrado'}</strong>. O link expira em{' '}
               <strong>
-                {new Date(securityChallenge.expires_at).toLocaleString('pt-BR', {
+                {new Date(linkChallenge.expires_at).toLocaleString('pt-BR', {
                   hour: '2-digit',
                   minute: '2-digit'
                 })}
@@ -251,52 +220,33 @@ export function Login() {
               .
             </div>
 
-            <label style={labelStyle}>Código de segurança</label>
-            <input
-              type="text"
-              value={securityCode}
-              onChange={e =>
-                setSecurityCode(e.target.value.replace(/\D/g, '').slice(0, 6))
-              }
-              placeholder=""
-              inputMode="numeric"
-              style={inputStyle}
-            />
-
-            {securityError && <div style={errorStyle}>⚠ {securityError}</div>}
-
             <button
               type="button"
-              onClick={handleSecurityConfirm}
-              disabled={
-                isSecurityLoading || !/^[0-9]{6}$/.test(securityCode)
-              }
+              onClick={handleResendLink}
+              disabled={isResendLoading}
               style={buttonStyle}
             >
-              {isSecurityLoading ? 'Validando...' : 'Confirmar código'}
+              {isResendLoading ? 'Reenviando...' : 'Reenviar link'}
             </button>
 
             <button
               type="button"
-              onClick={handleSecurityResend}
-              disabled={isSecurityLoading}
+              onClick={handleCancelLink}
               style={{ ...linkButton, marginTop: 8 }}
             >
-              {isSecurityLoading ? 'Reenviando...' : 'Reenviar código'}
+              Voltar para login
             </button>
           </div>
         )}
 
-        {!securityChallenge && (
+        {!linkChallenge && (
           <button
             type="button"
             onClick={() => {
               setModoRecuperar(!modoRecuperar)
               setError(null)
               setSuccessMessage(null)
-              setSecurityChallenge(null)
-              setSecurityCode('')
-              setSecurityError(null)
+              setLinkChallenge(null)
             }}
             style={linkButton}
           >

@@ -1,4 +1,4 @@
-import type { AcaoRecord, AcaoStatus } from '../data/sampleActions'
+import type { AcaoRecord, AcaoStatus } from '../types/acao'
 
 function normalizeActionStatus(value: string): AcaoStatus {
   const normalized = String(value ?? '').trim().toLowerCase()
@@ -31,6 +31,7 @@ export function normalizeActionRow(entry: Record<string, unknown>): AcaoRecord {
   return {
     id_company: toStringValue('id_company', 'company_id'),
     id_acao: asNumber(entry['id_acao'] ?? entry['id']),
+    id_acao_raw: toStringValue('id_acao', 'id'),
     id_usuario_solicitante: toStringValue(
       'id_usuario_solicitante',
       'requester_id'
@@ -49,6 +50,7 @@ export function normalizeActionRow(entry: Record<string, unknown>): AcaoRecord {
     criticidade: toStringValue('criticidade', 'criticality') || 'Alta',
     texto_acao: toStringValue('texto_acao', 'description'),
     texto_enerramento: toStringValue('texto_enerramento', 'close_note'),
-    texto_devolutiva: toStringValue('texto_devolutiva', 'feedback')
+    texto_devolutiva: toStringValue('texto_devolutiva', 'feedback'),
+    incidente_codigo: toStringValue('incidente_codigo', 'incident_code')
   }
 }

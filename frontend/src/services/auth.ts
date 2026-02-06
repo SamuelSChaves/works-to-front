@@ -21,14 +21,14 @@ export type User = {
   profileName?: string
 }
 
-export type SecurityValidationInfo = {
-  challenge_id: string
+export type LoginLinkInfo = {
+  link_id: string
   expires_at: string
   email_hint?: string
 }
 
-export interface SecurityValidationError extends Error {
-  securityValidation?: SecurityValidationInfo
+export interface LoginLinkError extends Error {
+  loginLink?: LoginLinkInfo
 }
 
 export type Permissions = Record<
@@ -167,9 +167,9 @@ export async function login(cs: string, senha: string) {
   if (!response.ok) {
     const error = new Error(
       (data?.error as string) || 'Erro ao efetuar login'
-    ) as SecurityValidationError
-    if (data?.security_validation) {
-      error.securityValidation = data.security_validation as SecurityValidationInfo
+    ) as LoginLinkError
+    if (data?.login_link) {
+      error.loginLink = data.login_link as LoginLinkInfo
     }
     throw error
   }
@@ -257,14 +257,14 @@ export async function confirmPasswordReset(
   }
 }
 
-export async function confirmSecurityCode(
-  challengeId: string,
-  code: string
+export async function confirmLoginLink(
+  linkId: string,
+  token: string
 ): Promise<User> {
-  const response = await fetch(`${API_URL}/auth/security-code/confirm`, {
+  const response = await fetch(`${API_URL}/auth/login/confirm`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ challenge_id: challengeId, code })
+    body: JSON.stringify({ link_id: linkId, token })
   })
 
   const text = await response.text()
@@ -279,30 +279,30 @@ export async function confirmSecurityCode(
 
   if (!response.ok) {
     throw new Error(
-      (payload?.error as string) || 'Erro ao confirmar o código de segurança.'
+      (payload?.error as string) || 'Erro ao confirmar o link de login.'
     )
   }
 
   return handleAuthSuccess(payload ?? {})
 }
 
-export async function resendSecurityCode(
-  challengeId: string
-): Promise<SecurityValidationInfo | null> {
-  const response = await fetch(`${API_URL}/auth/security-code/resend`, {
+export async function resendLoginLink(
+  linkId: string
+): Promise<LoginLinkInfo | null> {
+  const response = await fetch(`${API_URL}/auth/login/resend`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ challenge_id: challengeId })
+    body: JSON.stringify({ link_id: linkId })
   })
 
   const payload = await response.json().catch(() => ({} as Record<string, unknown>))
   if (!response.ok) {
     throw new Error(
-      (payload?.error as string) || 'Erro ao reenviar o código de segurança.'
+      (payload?.error as string) || 'Erro ao reenviar o link de login.'
     )
   }
 
-  return (payload?.security_validation as SecurityValidationInfo) ?? null
+  return (payload?.login_link as LoginLinkInfo) ?? null
 }
 
 async function handleAuthSuccess(payload: Record<string, unknown>): Promise<User> {

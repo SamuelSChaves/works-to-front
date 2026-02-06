@@ -13,8 +13,9 @@ export interface Env {
   PASSWORD_RESET_EMAIL_API_KEY?: string
   PASSWORD_RESET_EMAIL_FROM?: string
   PASSWORD_RESET_EMAIL_SUBJECT?: string
-  SECURITY_CODE_EXP_MINUTES?: string
-  SECURITY_CODE_EMAIL_SUBJECT?: string
+  LOGIN_LINK_FRONTEND_URL?: string
+  LOGIN_LINK_TOKEN_EXP_MINUTES?: string
+  LOGIN_LINK_EMAIL_SUBJECT?: string
   ATTACHMENTS: R2Bucket
 }
 
@@ -53,6 +54,8 @@ type UserRow = {
   created_at?: string
   updated_at?: string
   security_validated_at?: string | null
+  trusted_login_ip?: string | null
+  trusted_login_ip_verified_at?: string | null
 }
 
 type UserWithCompanyRow = UserRow & {
@@ -67,17 +70,24 @@ type UserAuthRow = {
   locked_until: string | null
 }
 
-type SecurityValidationRow = {
+type LoginLinkRow = {
   id: string
   company_id: string
   user_id: string
-  cs: string
-  code_hash: string
+  token_hash: string
+  ip: string | null
   expires_at: string
   status: 'pending' | 'used' | 'revoked'
   attempts: number
   created_at: string
   used_at: string | null
+  revoked_at: string | null
+}
+
+type LoginLinkChallenge = {
+  link_id: string
+  expires_at: string
+  email_hint?: string
 }
 
 type UserHistoryRow = {
@@ -385,6 +395,90 @@ function normalizeActionAttachmentRow(
   }
 }
 
+type IncidentStatus = 'Aberto' | 'Em andamento' | 'Concluído'
+type IncidentSeverity = 'Baixa' | 'Média' | 'Alta' | 'Crítica'
+
+type IncidentRowRecord = {
+  id: string
+  company_id: string
+  codigo: string
+  titulo: string
+  status: string | null
+  severity: string | null
+  responsavel: string
+  relator: string
+  descricao: string
+  plano_acao: string
+  anexos: string | null
+  created_at: string
+  updated_at: string | null
+}
+
+function normalizeIncidentStatus(value?: string | null): IncidentStatus {
+  const normalized = String(value ?? '')
+    .normalize('NFC')
+    .trim()
+    .toLowerCase()
+  if (normalized.includes('andamento')) {
+    return 'Em andamento'
+  }
+  if (normalized.includes('crítica') || normalized.includes('critica')) {
+    return 'Concluído'
+  }
+  if (normalized.includes('conclu')) {
+    return 'Concluído'
+  }
+  return 'Aberto'
+}
+
+function normalizeIncidentSeverity(value?: string | null): IncidentSeverity {
+  const normalized = String(value ?? '')
+    .normalize('NFC')
+    .trim()
+    .toLowerCase()
+  if (normalized.includes('alta')) {
+    return 'Alta'
+  }
+  if (normalized.includes('crítica') || normalized.includes('critica')) {
+    return 'Crítica'
+  }
+  if (normalized.includes('baixa')) {
+    return 'Baixa'
+  }
+  return 'Média'
+}
+
+function parseIncidentAttachments(value?: string | null): string[] {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value)
+    if (Array.isArray(parsed)) {
+      return parsed.map(entry => String(entry))
+    }
+  } catch {
+    // ignore
+  }
+  return []
+}
+
+function mapIncidentRow(record: IncidentRowRecord) {
+  return {
+    id: record.id,
+    company_id: record.company_id,
+    codigo: record.codigo,
+    titulo: record.titulo,
+    status: normalizeIncidentStatus(record.status),
+    severity: normalizeIncidentSeverity(record.severity),
+    responsavel: record.responsavel,
+    relator: record.relator,
+    descricao: record.descricao,
+    plano_acao: record.plano_acao,
+    anexos: parseIncidentAttachments(record.anexos),
+    criado_em: record.created_at,
+    updated_at: record.updated_at
+  }
+}
+
 type TarefaRow = {
   id: string
   company_id: string
@@ -686,9 +780,11 @@ const PASSWORD_RESET_ID_QUERY = 'token_id'
 const PASSWORD_RESET_TOKEN_QUERY = 'token'
 const DEFAULT_PASSWORD_RESET_EXP_MINUTES = 30
 const DEFAULT_PASSWORD_RESET_EMAIL_SUBJECT = 'TO Works · Redefinição de senha'
-const DEFAULT_SECURITY_CODE_EXP_MINUTES = 15
-const DEFAULT_SECURITY_VALIDATION_INTERVAL_DAYS = 30
-const DEFAULT_SECURITY_CODE_EMAIL_SUBJECT = 'TO Works · Código de segurança'
+const LOGIN_LINK_PAGE_PATH = '/confirmar-login'
+const LOGIN_LINK_ID_QUERY = 'link_id'
+const LOGIN_LINK_TOKEN_QUERY = 'token'
+const DEFAULT_LOGIN_LINK_EXP_MINUTES = 15
+const DEFAULT_LOGIN_LINK_EMAIL_SUBJECT = 'TO Works · Link de login'
 
 type PendingSessionRefresh = {
   token: string
@@ -786,10 +882,10 @@ export default {
           return respond(await handlePasswordResetRequest(request, env), env)
         case 'POST /auth/password-reset/confirm':
           return respond(await handlePasswordResetConfirm(request, env), env)
-        case 'POST /auth/security-code/confirm':
-          return respond(await handleSecurityCodeConfirm(request, env), env)
-        case 'POST /auth/security-code/resend':
-          return respond(await handleSecurityCodeResend(request, env), env)
+        case 'POST /auth/login/confirm':
+          return respond(await handleLoginLinkConfirm(request, env), env)
+        case 'POST /auth/login/resend':
+          return respond(await handleLoginLinkResend(request, env), env)
         case 'POST /admin/users':
           return respond(await handleCreateUser(request, env), env)
         case 'GET /admin/users':
@@ -820,6 +916,8 @@ export default {
           return respond(await handleCreateParametro(request, env), env)
         case 'PATCH /parametros':
           return respond(await handleUpdateParametro(request, env), env)
+        case 'DELETE /parametros':
+          return respond(await handleDeleteParametro(request, env), env)
         case 'GET /ativos':
           return respond(await handleListAtivos(request, env), env)
         case 'GET /ativos/detail':
@@ -876,6 +974,12 @@ export default {
           return respond(await handleUploadActionAttachment(request, env), env)
         case 'GET /acoes/anexos/download':
           return respond(await handleDownloadActionAttachment(request, env), env)
+        case 'GET /incidentes':
+          return respond(await handleListIncidents(request, env), env)
+        case 'POST /incidentes':
+          return respond(await handleCreateIncident(request, env), env)
+        case 'PATCH /incidentes':
+          return respond(await handleUpdateIncident(request, env), env)
         case 'POST /tarefas':
           return respond(await handleCreateTarefa(request, env), env)
         case 'PATCH /tarefas':
@@ -924,6 +1028,7 @@ export default {
           if (routeKey.startsWith('DELETE /componentes/')) {
             return respond(await handleDeleteComponente(request, env), env)
           }
+          console.warn('Unhandled fetch route detected', routeKey)
           return respond(new Response('Not Found', { status: 404 }), env)
       }
     } catch (error) {
@@ -1094,10 +1199,27 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
     .bind(user.id)
     .run()
 
-  if (shouldRequireSecurityValidation(user.security_validated_at)) {
+  const trustedIp = user.trusted_login_ip ?? null
+  if (!isTrustedLoginIp(trustedIp, clientIp)) {
+    if (!user.email) {
+      await logLoginAttempt(env, {
+        success: 0,
+        reason: 'login_link_missing_email',
+        companyId,
+        userId: user.id,
+        cs,
+        ip: clientIp,
+        userAgent: request.headers.get('user-agent')
+      })
+      return Response.json(
+        { error: 'Não há email cadastrado para enviar o link de login.' },
+        { status: 500 }
+      )
+    }
+
     await logLoginAttempt(env, {
       success: 0,
-      reason: 'security_validation_required',
+      reason: 'login_link_required',
       companyId,
       userId: user.id,
       cs,
@@ -1105,19 +1227,20 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
       ip: clientIp,
       userAgent: request.headers.get('user-agent')
     })
+
     try {
-      const challenge = await createSecurityValidationChallenge(env, user)
+      const challenge = await createLoginLinkChallenge(env, user, clientIp)
       return Response.json(
         {
-          error: 'security_validation_required',
-          security_validation: challenge
+          error: 'login_link_required',
+          login_link: challenge
         },
         { status: 428 }
       )
     } catch (error) {
-      console.error('Erro ao criar desafio de segurança:', error)
+      console.error('Erro ao criar link de login:', error)
       return Response.json(
-        { error: 'Não foi possível enviar o código de segurança.' },
+        { error: 'Não foi possível enviar o link de login.' },
         { status: 500 }
       )
     }
@@ -1186,112 +1309,6 @@ async function finalizeLogin(
   })
   response.headers.set('Set-Cookie', cookie)
   return response
-}
-
-async function handleSecurityCodeConfirm(
-  request: Request,
-  env: Env
-): Promise<Response> {
-  const payload = await readJson(request)
-  const challengeId = String(payload?.challenge_id || '').trim()
-  const code = String(payload?.code || '').trim()
-  const clientIp = getClientIp(request)
-
-  if (!challengeId || !code) {
-    return Response.json({ error: 'Dados invalidos.' }, { status: 400 })
-  }
-
-  const challenge = await getSecurityValidationChallenge(env, challengeId)
-  if (!challenge || challenge.status !== 'pending') {
-    return Response.json({ error: 'Código inválido ou expirado.' }, { status: 400 })
-  }
-
-  const expiresAt = new Date(challenge.expires_at)
-  if (expiresAt.getTime() <= Date.now()) {
-    return Response.json({ error: 'Código inválido ou expirado.' }, { status: 400 })
-  }
-
-  const expectedHash = await hashResetToken(code)
-  if (expectedHash !== challenge.code_hash) {
-    await env.DB
-      .prepare('UPDATE tb_security_validation SET attempts = attempts + 1 WHERE id = ?')
-      .bind(challengeId)
-      .run()
-    return Response.json({ error: 'Código inválido.' }, { status: 400 })
-  }
-
-  const nowIso = new Date().toISOString()
-  await env.DB
-    .prepare('UPDATE tb_security_validation SET status = ?, used_at = ? WHERE id = ?')
-    .bind('used', nowIso, challengeId)
-    .run()
-
-  await env.DB
-    .prepare(
-      'UPDATE tb_user SET security_validated_at = ?, updated_at = ? WHERE id = ? AND company_id = ?'
-    )
-    .bind(nowIso, nowIso, challenge.user_id, challenge.company_id)
-    .run()
-
-  const user = await env.DB
-    .prepare(
-      `SELECT u.*, c.status AS company_status, p.name AS profile_name
-       FROM tb_user u
-       LEFT JOIN tb_company c ON c.id = u.company_id
-       LEFT JOIN tb_profile p ON p.id = u.profile_id
-       WHERE u.id = ? AND u.company_id = ?`
-    )
-    .bind(challenge.user_id, challenge.company_id)
-    .first<UserWithCompanyRow>()
-
-  if (!user || user.company_status !== 'ativo' || user.status !== 'ativo') {
-    return Response.json({ error: 'Código inválido.' }, { status: 400 })
-  }
-
-  return finalizeLogin(request, env, user, clientIp, challenge.cs)
-}
-
-async function handleSecurityCodeResend(
-  request: Request,
-  env: Env
-): Promise<Response> {
-  const payload = await readJson(request)
-  const challengeId = String(payload?.challenge_id || '').trim()
-
-  if (!challengeId) {
-    return Response.json({ ok: true })
-  }
-
-  const existing = await getSecurityValidationChallenge(env, challengeId)
-  if (!existing || existing.status !== 'pending') {
-    return Response.json({ ok: true })
-  }
-
-  const user = await env.DB
-    .prepare(
-      `SELECT u.*, c.status AS company_status, p.name AS profile_name
-       FROM tb_user u
-       LEFT JOIN tb_company c ON c.id = u.company_id
-       LEFT JOIN tb_profile p ON p.id = u.profile_id
-       WHERE u.id = ? AND u.company_id = ?`
-    )
-    .bind(existing.user_id, existing.company_id)
-    .first<UserWithCompanyRow>()
-
-  if (!user || user.company_status !== 'ativo' || user.status !== 'ativo') {
-    return Response.json({ ok: true })
-  }
-
-  try {
-    const challenge = await createSecurityValidationChallenge(env, user)
-    return Response.json({ security_validation: challenge })
-  } catch (error) {
-    console.error('Erro ao reenviar código de segurança:', error)
-    return Response.json(
-      { error: 'Não foi possível reenviar o código.' },
-      { status: 500 }
-    )
-  }
 }
 
 async function handleAuthMe(request: Request, env: Env): Promise<Response> {
@@ -2921,6 +2938,56 @@ async function handleUpdateParametro(
     .first<ParametroCadastroAtivoRow>()
 
   return Response.json({ parametro: updated })
+}
+
+async function handleDeleteParametro(
+  request: Request,
+  env: Env
+): Promise<Response> {
+  assertJwtSecret(env)
+  const auth = await requireAuth(request, env)
+  if (!auth) {
+    return Response.json({ error: 'Token invalido.' }, { status: 401 })
+  }
+  const permissionError = await requirePermission(
+    env,
+    auth,
+    'configuracao',
+    'exclusao'
+  )
+  if (permissionError) return permissionError
+
+  await ensureParametrosTable(env)
+
+  const payload = await readJson(request)
+  if (!payload) {
+    return Response.json({ error: 'Dados invalidos.' }, { status: 400 })
+  }
+
+  const idParametro = String(payload.id_parametro || '').trim()
+  if (!idParametro) {
+    return Response.json({ error: 'id_parametro obrigatorio.' }, { status: 400 })
+  }
+
+  const existing = await env.DB
+    .prepare(
+      `SELECT id_parametro
+       FROM tb_parametro
+       WHERE id_parametro = ? AND company_id = ?`
+    )
+    .bind(idParametro, auth.company_id)
+    .first<{ id_parametro: string }>()
+
+  if (!existing) {
+    return Response.json({ error: 'Parametro nao encontrado.' }, { status: 404 })
+  }
+
+  await env.DB
+    .prepare('DELETE FROM tb_parametro WHERE id_parametro = ?')
+    .bind(idParametro)
+    .run()
+
+  return Response.json({ ok: true })
 }
 
 async function handleListAtivos(request: Request, env: Env): Promise<Response> {
@@ -5035,6 +5102,205 @@ async function handleAtivoHistory(request: Request, env: Env): Promise<Response>
   return Response.json({ history: result.results })
 }
 
+async function handleListIncidents(
+  request: Request,
+  env: Env
+): Promise<Response> {
+  assertJwtSecret(env)
+  const auth = await requireAuth(request, env)
+  if (!auth) {
+    return Response.json({ error: 'Token inválido.' }, { status: 401 })
+  }
+
+  const rows = await env.DB
+    .prepare(
+      `SELECT
+        id,
+        company_id,
+        codigo,
+        titulo,
+        status,
+        severity,
+        responsavel,
+        relator,
+        descricao,
+        plano_acao,
+        anexos,
+        created_at,
+        updated_at
+       FROM tb_incidente
+       WHERE company_id = ?
+       ORDER BY created_at DESC`
+    )
+    .bind(auth.company_id)
+    .all<IncidentRowRecord>()
+
+  const incidents = rows.results.map(mapIncidentRow)
+  return Response.json({ incidentes: incidents })
+}
+
+async function handleCreateIncident(
+  request: Request,
+  env: Env
+): Promise<Response> {
+  assertJwtSecret(env)
+  const auth = await requireAuth(request, env)
+  if (!auth) {
+    return Response.json({ error: 'Token inválido.' }, { status: 401 })
+  }
+
+  const payload = await request.json()
+  const titulo = String(payload?.titulo ?? '').trim()
+  const descricao = String(payload?.descricao ?? '').trim()
+  const plano_acao = String(payload?.plano_acao ?? '').trim()
+  if (!titulo || !descricao || !plano_acao) {
+    return Response.json(
+      { error: 'titulo, descricao e plano_acao são obrigatórios.' },
+      { status: 400 }
+    )
+  }
+
+  const incidentId = crypto.randomUUID()
+  const incidentCode = `INC-${Date.now()}`
+
+  await env.DB
+    .prepare(
+      `INSERT INTO tb_incidente (
+        id,
+        company_id,
+        codigo,
+        titulo,
+        status,
+        severity,
+        responsavel,
+        relator,
+        descricao,
+        plano_acao,
+        anexos
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(
+      incidentId,
+      auth.company_id,
+      incidentCode,
+      titulo,
+      normalizeIncidentStatus(payload?.status),
+      normalizeIncidentSeverity(payload?.severity),
+      payload?.responsavel || auth.nome || '',
+      auth.nome || '',
+      descricao,
+      plano_acao,
+      '[]'
+    )
+    .run()
+
+  const inserted = await env.DB
+    .prepare(
+      `SELECT
+         id,
+         company_id,
+         codigo,
+         titulo,
+         status,
+         severity,
+         responsavel,
+         relator,
+         descricao,
+         plano_acao,
+         anexos,
+         created_at,
+         updated_at
+       FROM tb_incidente
+       WHERE id = ? AND company_id = ?`
+    )
+    .bind(incidentId, auth.company_id)
+    .first<IncidentRowRecord>()
+
+  if (!inserted) {
+    return Response.json(
+      { error: 'Não foi possível criar o incidente.' },
+      { status: 500 }
+    )
+  }
+
+  return Response.json({ incidente: mapIncidentRow(inserted) })
+}
+
+async function handleUpdateIncident(
+  request: Request,
+  env: Env
+): Promise<Response> {
+  assertJwtSecret(env)
+  const auth = await requireAuth(request, env)
+  if (!auth) {
+    return Response.json({ error: 'Token inválido.' }, { status: 401 })
+  }
+
+  const payload = await request.json()
+  const incidentId = String(payload?.id ?? '').trim()
+  if (!incidentId) {
+    return Response.json({ error: 'id é obrigatório.' }, { status: 400 })
+  }
+
+  const updates: Array<{ field: string; value: string | undefined }> = [
+    { field: 'titulo', value: payload?.titulo ? String(payload.titulo).trim() : undefined },
+    { field: 'descricao', value: payload?.descricao ? String(payload.descricao).trim() : undefined },
+    { field: 'plano_acao', value: payload?.plano_acao ? String(payload.plano_acao).trim() : undefined },
+    { field: 'responsavel', value: payload?.responsavel ? String(payload.responsavel).trim() : undefined },
+    { field: 'status', value: payload?.status ? normalizeIncidentStatus(payload.status) : undefined },
+    { field: 'severity', value: payload?.severity ? normalizeIncidentSeverity(payload.severity) : undefined }
+  ]
+
+  const filtered = updates.filter(entry => entry.value !== undefined)
+  if (!filtered.length) {
+    return Response.json(
+      { error: 'Nenhum campo informado para atualização.' },
+      { status: 400 }
+    )
+  }
+
+  const setClause = filtered.map(entry => `${entry.field} = ?`).join(', ')
+  const params = filtered.map(entry => entry.value as string)
+  params.push(incidentId, auth.company_id)
+
+  await env.DB
+    .prepare(
+      `UPDATE tb_incidente
+       SET ${setClause}, updated_at = datetime('now')
+       WHERE id = ? AND company_id = ?`
+    )
+    .bind(...params)
+    .run()
+
+  const updated = await env.DB
+    .prepare(
+      `SELECT
+         id,
+         company_id,
+         codigo,
+         titulo,
+         status,
+         severity,
+         responsavel,
+         relator,
+         descricao,
+         plano_acao,
+         anexos,
+         created_at,
+         updated_at
+       FROM tb_incidente
+       WHERE id = ? AND company_id = ?`
+    )
+    .bind(incidentId, auth.company_id)
+    .first<IncidentRowRecord>()
+
+  if (!updated) {
+    return Response.json({ error: 'Incidente não encontrado.' }, { status: 404 })
+  }
+
+  return Response.json({ incidente: mapIncidentRow(updated) })
+}
+
 function isPendingActionStatus(value?: string) {
   const normalized = String(value ?? '')
     .normalize('NFC')
@@ -7146,27 +7412,138 @@ function maskEmailForHint(email: string): string {
   return `${visible}${hidden}@${domain}`
 }
 
-function generateSecurityCode(): string {
-  const array = new Uint32Array(1)
-  crypto.getRandomValues(array)
-  const number = array[0] % 1000000
-  return String(number).padStart(6, '0')
+function isTrustedLoginIp(
+  storedIp: string | null | undefined,
+  currentIp: string | null
+): boolean {
+  if (!storedIp || !currentIp) return false
+  return storedIp === currentIp
 }
 
-function getSecurityCodeExpirationMinutes(env: Env): number {
-  const parsed = parseInt(env.SECURITY_CODE_EXP_MINUTES || '', 10)
+function getLoginLinkExpirationMinutes(env: Env): number {
+  const parsed = parseInt(env.LOGIN_LINK_TOKEN_EXP_MINUTES || '', 10)
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    return DEFAULT_SECURITY_CODE_EXP_MINUTES
+    return DEFAULT_LOGIN_LINK_EXP_MINUTES
   }
   return parsed
 }
 
-function shouldRequireSecurityValidation(lastValidatedAt?: string | null): boolean {
-  if (!lastValidatedAt) return true
-  const validatedMs = Date.parse(lastValidatedAt)
-  if (Number.isNaN(validatedMs)) return true
-  const intervalMs = DEFAULT_SECURITY_VALIDATION_INTERVAL_DAYS * 24 * 60 * 60 * 1000
-  return validatedMs + intervalMs <= Date.now()
+function buildLoginLink(env: Env, linkId: string, token: string): string {
+  const raw =
+  env.LOGIN_LINK_FRONTEND_URL?.trim() ||
+    'https://master.works-to-front.pages.dev'
+  let base: URL
+  try {
+    base = new URL(raw)
+  } catch {
+    base = new URL('https://works-to-front.pages.dev')
+  }
+  base.pathname = LOGIN_LINK_PAGE_PATH
+  base.searchParams.set(LOGIN_LINK_ID_QUERY, linkId)
+  base.searchParams.set(LOGIN_LINK_TOKEN_QUERY, token)
+  return base.toString()
+}
+
+async function sendLoginLinkEmail(
+  env: Env,
+  user: UserRow,
+  loginLink: string,
+  expiresMinutes: number
+): Promise<void> {
+  const apiUrl = env.PASSWORD_RESET_EMAIL_API_URL?.trim()
+  const apiKey = env.PASSWORD_RESET_EMAIL_API_KEY?.trim()
+  const from = env.PASSWORD_RESET_EMAIL_FROM?.trim()
+  if (!apiUrl || !apiKey || !from) {
+    throw new Error('Serviço de email para login não configurado.')
+  }
+
+  const subject =
+    env.LOGIN_LINK_EMAIL_SUBJECT?.trim() || DEFAULT_LOGIN_LINK_EMAIL_SUBJECT
+  const plain = `Olá ${user.nome},\n\nClique no link abaixo para confirmar seu login. O link expira em ${expiresMinutes} minutos.\n\n${loginLink}\n\nSe você não solicitou esse acesso, ignore esta mensagem.\n`
+  const html = `
+    <p>Olá ${user.nome},</p>
+    <p>Clique no link abaixo para confirmar seu login.</p>
+    <p><a href="${loginLink}">Confirmar meu acesso</a></p>
+    <p>Esse link expira em ${expiresMinutes} minutos. Se você não solicitou esse acesso, ignore esta mensagem.</p>
+  `
+
+  const response = await fetch(apiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      from,
+      to: user.email,
+      subject,
+      text: plain,
+      html
+    })
+  })
+
+  if (!response.ok) {
+    const errorBody = await response.text()
+    throw new Error(
+      `Falha ao enviar link de login: ${response.status} ${errorBody}`
+    )
+  }
+}
+
+async function createLoginLinkChallenge(
+  env: Env,
+  user: UserRow,
+  requestIp: string | null
+): Promise<LoginLinkChallenge> {
+  const nowIso = new Date().toISOString()
+  await env.DB
+    .prepare(
+      `UPDATE tb_login_link
+       SET status = 'revoked', revoked_at = ?
+       WHERE user_id = ? AND status = 'pending'`
+    )
+    .bind(nowIso, user.id)
+    .run()
+
+  const expiresMinutes = getLoginLinkExpirationMinutes(env)
+  const expiresAt = new Date(Date.now() + expiresMinutes * 60 * 1000).toISOString()
+  const linkId = crypto.randomUUID()
+  const token = crypto.randomUUID()
+  const tokenHash = await hashResetToken(token)
+
+  await env.DB
+    .prepare(
+      `INSERT INTO tb_login_link (
+         id, company_id, user_id, token_hash, ip, expires_at, status
+       ) VALUES (?, ?, ?, ?, ?, ?, 'pending')`
+    )
+    .bind(linkId, user.company_id, user.id, tokenHash, requestIp, expiresAt)
+    .run()
+
+  const loginLinkUrl = buildLoginLink(env, linkId, token)
+  try {
+    await sendLoginLinkEmail(env, user, loginLinkUrl, expiresMinutes)
+  } catch (error) {
+    await env.DB.prepare('DELETE FROM tb_login_link WHERE id = ?').bind(linkId).run()
+    throw error
+  }
+
+  return {
+    link_id: linkId,
+    expires_at: expiresAt,
+    email_hint: maskEmailForHint(user.email)
+  }
+}
+
+async function getLoginLink(env: Env, linkId: string): Promise<LoginLinkRow | null> {
+  return env.DB
+    .prepare(
+      `SELECT id, company_id, user_id, token_hash, ip, expires_at, status, attempts, created_at, used_at, revoked_at
+       FROM tb_login_link
+       WHERE id = ?`
+    )
+    .bind(linkId)
+    .first<LoginLinkRow>()
 }
 
 async function hashResetToken(token: string): Promise<string> {
@@ -7242,119 +7619,151 @@ async function sendPasswordResetEmail(
     })
   })
 
-    if (!response.ok) {
-      const errorBody = await response.text()
-      throw new Error(
-        `Falha ao enviar email de recuperação: ${response.status} ${errorBody}`
-      )
-    }
-}
-
-async function sendSecurityCodeEmail(
-  env: Env,
-  user: UserRow,
-  code: string,
-  expiresMinutes: number
-): Promise<void> {
-  const apiUrl = env.PASSWORD_RESET_EMAIL_API_URL?.trim()
-  const apiKey = env.PASSWORD_RESET_EMAIL_API_KEY?.trim()
-  const from = env.PASSWORD_RESET_EMAIL_FROM?.trim()
-  if (!apiUrl || !apiKey || !from) {
-    throw new Error('Serviço de email para segurança não configurado.')
-  }
-
-  const subject =
-    env.SECURITY_CODE_EMAIL_SUBJECT?.trim() || DEFAULT_SECURITY_CODE_EMAIL_SUBJECT
-  const plain = `Olá ${user.nome},\n\nInforme o código abaixo para continuar. O código expira em ${expiresMinutes} minutos.\n\n${code}\n\nSe você não solicitou esse código, ignore esta mensagem.\n`
-  const html = `
-    <p>Olá ${user.nome},</p>
-    <p>Informe o código abaixo para continuar.</p>
-    <p style="font-weight:600;font-size:1.4rem">${code}</p>
-    <p>O código expira em ${expiresMinutes} minutos. Se você não solicitou, ignore esta mensagem.</p>
-  `
-
-  const response = await fetch(apiUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      from,
-      to: user.email,
-      subject,
-      text: plain,
-      html
-    })
-  })
-
   if (!response.ok) {
     const errorBody = await response.text()
     throw new Error(
-      `Falha ao enviar código de segurança: ${response.status} ${errorBody}`
+      `Falha ao enviar email de recuperação: ${response.status} ${errorBody}`
     )
   }
 }
 
-async function createSecurityValidationChallenge(
-  env: Env,
-  user: UserRow
-): Promise<{ challenge_id: string; expires_at: string; email_hint: string }> {
+async function handleLoginLinkConfirm(
+  request: Request,
+  env: Env
+): Promise<Response> {
+  const payload = await readJson(request)
+  const linkId = String(payload?.link_id || '').trim()
+  const token = String(payload?.token || '').trim()
+  const clientIp = getClientIp(request)
+  const userAgent = request.headers.get('user-agent')
+
+  if (!linkId || !token) {
+    return Response.json({ error: 'Dados inválidos.' }, { status: 400 })
+  }
+
+  const link = await getLoginLink(env, linkId)
+  if (!link || link.status !== 'pending') {
+    await logLoginAttempt(env, {
+      success: 0,
+      reason: 'login_link_invalid',
+      companyId: link?.company_id ?? null,
+      userId: link?.user_id ?? null,
+      ip: clientIp,
+      userAgent
+    })
+    return Response.json({ error: 'Link inválido ou expirado.' }, { status: 400 })
+  }
+
+  const expiresAt = new Date(link.expires_at)
+  if (expiresAt.getTime() <= Date.now()) {
+    await logLoginAttempt(env, {
+      success: 0,
+      reason: 'login_link_invalid',
+      companyId: link.company_id,
+      userId: link.user_id,
+      ip: clientIp,
+      userAgent
+    })
+    return Response.json({ error: 'Link inválido ou expirado.' }, { status: 400 })
+  }
+
+  const expectedHash = await hashResetToken(token)
+  if (expectedHash !== link.token_hash) {
+    await env.DB
+      .prepare('UPDATE tb_login_link SET attempts = attempts + 1 WHERE id = ?')
+      .bind(linkId)
+      .run()
+    await logLoginAttempt(env, {
+      success: 0,
+      reason: 'login_link_invalid',
+      companyId: link.company_id,
+      userId: link.user_id,
+      ip: clientIp,
+      userAgent
+    })
+    return Response.json({ error: 'Link inválido ou expirado.' }, { status: 400 })
+  }
+
+  const nowIso = new Date().toISOString()
   await env.DB
-    .prepare(
-      `UPDATE tb_security_validation
-       SET status = 'revoked', revoked_at = ?
-       WHERE user_id = ? AND status = 'pending'`
-    )
-    .bind(new Date().toISOString(), user.id)
+    .prepare('UPDATE tb_login_link SET status = ?, used_at = ?, ip = ? WHERE id = ?')
+    .bind('used', nowIso, clientIp, linkId)
     .run()
 
-  const expiresMinutes = getSecurityCodeExpirationMinutes(env)
-  const expiresAt = new Date(
-    Date.now() + expiresMinutes * 60 * 1000
-  ).toISOString()
-  const challengeId = crypto.randomUUID()
-  const code = generateSecurityCode()
-  const codeHash = await hashResetToken(code)
-
   await env.DB
     .prepare(
-      `INSERT INTO tb_security_validation (
-         id, company_id, user_id, cs, code_hash, expires_at, status
-       ) VALUES (?, ?, ?, ?, ?, ?, 'pending')`
+      'UPDATE tb_user SET trusted_login_ip = ?, trusted_login_ip_verified_at = ?, updated_at = ? WHERE id = ? AND company_id = ?'
     )
-    .bind(challengeId, user.company_id, user.id, user.cs, codeHash, expiresAt)
+    .bind(clientIp, nowIso, nowIso, link.user_id, link.company_id)
     .run()
+
+  const user = await env.DB
+    .prepare(
+      `SELECT u.*, c.status AS company_status, p.name AS profile_name
+       FROM tb_user u
+       LEFT JOIN tb_company c ON c.id = u.company_id
+       LEFT JOIN tb_profile p ON p.id = u.profile_id
+       WHERE u.id = ? AND u.company_id = ?`
+    )
+    .bind(link.user_id, link.company_id)
+    .first<UserWithCompanyRow>()
+
+  if (!user || user.company_status !== 'ativo' || user.status !== 'ativo') {
+    await logLoginAttempt(env, {
+      success: 0,
+      reason: 'login_link_invalid',
+      companyId: link.company_id,
+      userId: link.user_id,
+      ip: clientIp,
+      userAgent
+    })
+    return Response.json({ error: 'Link inválido ou expirado.' }, { status: 400 })
+  }
+
+  return finalizeLogin(request, env, user, clientIp, user.cs)
+}
+
+async function handleLoginLinkResend(
+  request: Request,
+  env: Env
+): Promise<Response> {
+  const payload = await readJson(request)
+  const linkId = String(payload?.link_id || '').trim()
+
+  if (!linkId) {
+    return Response.json({ ok: true })
+  }
+
+  const existing = await getLoginLink(env, linkId)
+  if (!existing || existing.status !== 'pending') {
+    return Response.json({ ok: true })
+  }
+
+  const user = await env.DB
+    .prepare(
+      `SELECT u.*, c.status AS company_status, p.name AS profile_name
+       FROM tb_user u
+       LEFT JOIN tb_company c ON c.id = u.company_id
+       LEFT JOIN tb_profile p ON p.id = u.profile_id
+       WHERE u.id = ? AND u.company_id = ?`
+    )
+    .bind(existing.user_id, existing.company_id)
+    .first<UserWithCompanyRow>()
+
+  if (!user || user.company_status !== 'ativo' || user.status !== 'ativo') {
+    return Response.json({ ok: true })
+  }
 
   try {
-    await sendSecurityCodeEmail(env, user, code, expiresMinutes)
+    const challenge = await createLoginLinkChallenge(env, user, existing.ip)
+    return Response.json({ login_link: challenge })
   } catch (error) {
-    await env.DB
-      .prepare('DELETE FROM tb_security_validation WHERE id = ?')
-      .bind(challengeId)
-      .run()
-    throw error
-  }
-
-  return {
-    challenge_id: challengeId,
-    expires_at: expiresAt,
-    email_hint: maskEmailForHint(user.email)
-  }
-}
-
-async function getSecurityValidationChallenge(
-  env: Env,
-  challengeId: string
-): Promise<SecurityValidationRow | null> {
-  return env.DB
-    .prepare(
-      `SELECT id, company_id, user_id, cs, code_hash, expires_at, status, attempts
-       FROM tb_security_validation
-       WHERE id = ?`
+    console.error('Erro ao reenviar link de login:', error)
+    return Response.json(
+      { error: 'Não foi possível reenviar o link.' },
+      { status: 500 }
     )
-    .bind(challengeId)
-    .first<SecurityValidationRow>()
+  }
 }
 
 async function readJson(request: Request): Promise<Record<string, unknown> | null> {

@@ -15,11 +15,7 @@ import {
   subscribeToUserChanges,
   type User
 } from '../services/auth'
-import {
-  sampleActions,
-  type AcaoRecord,
-  type AcaoStatus
-} from '../data/sampleActions'
+import type { AcaoRecord, AcaoStatus } from '../types/acao'
 import { normalizeActionRow } from '../utils/actions'
 
 const OS_STATUS_KEYS = ['CRIADO', 'PROGRAMADO', 'REALIZADO', 'CANCELADO'] as const
@@ -545,7 +541,7 @@ export function Home() {
   const [osLoading, setOsLoading] = useState(true)
   const [osError, setOsError] = useState<string | null>(null)
   const [currentUser, setCurrentUser] = useState<User | null>(() => getStoredUser())
-  const [actions, setActions] = useState<AcaoRecord[]>(sampleActions)
+  const [actions, setActions] = useState<AcaoRecord[]>([])
   const [actionsLoading, setActionsLoading] = useState(true)
   const [actionsError, setActionsError] = useState<string | null>(null)
   const now = new Date()
@@ -656,7 +652,7 @@ export function Home() {
 
     const token = getStoredToken()
     if (!token) {
-      setActions(sampleActions)
+      setActions([])
       setActionsLoading(false)
       setActionsError('Sessão expirada. Faça login novamente para ver as ações pendentes.')
       return
@@ -683,7 +679,7 @@ export function Home() {
           : []
 
         if (!rows.length) {
-          setActions(sampleActions)
+          setActions([])
           return
         }
 
@@ -691,7 +687,7 @@ export function Home() {
         setActions(normalized)
       } catch (error) {
         if (!cancelled) {
-          setActions(sampleActions)
+          setActions([])
           setActionsError(
             error instanceof Error ? error.message : 'Erro ao carregar ações pendentes.'
           )

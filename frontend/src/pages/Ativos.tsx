@@ -1418,20 +1418,26 @@ export function Ativos() {
   }
 
   const validateForm = () => {
-  const errors: string[] = []
-  const requiredValues = requiredFields.map(field => formState[field.key])
-  if (requiredValues.some(value => !value)) {
-    errors.push('Preencha todos os campos obrigatorios.')
+    const errors: string[] = []
+    const missingFields = requiredFields
+      .map(field => ({
+        label: field.label.replace(/\s*\*$/, ''),
+        value: String(formState[field.key] ?? '').trim()
+      }))
+      .filter(item => item.value === '')
+    if (missingFields.length > 0) {
+      const labels = missingFields.map(item => item.label).join(', ')
+      errors.push(`Preencha os campos obrigatorios: ${labels}`)
+    }
+    if (formState.ATIVO_COORDENACAO.length > 20) {
+      errors.push('Coordenação deve ter no máximo 20 caracteres.')
+    }
+    if (formState.ATIVO_EQUIPE.length > 10) {
+      errors.push('Equipe deve ter no máximo 10 caracteres.')
+    }
+    setFormErrors(errors)
+    return errors.length === 0
   }
-  if (formState.ATIVO_COORDENACAO.length > 20) {
-    errors.push('Coordenação deve ter no máximo 20 caracteres.')
-  }
-  if (formState.ATIVO_EQUIPE.length > 10) {
-    errors.push('Equipe deve ter no máximo 10 caracteres.')
-  }
-  setFormErrors(errors)
-  return errors.length === 0
-}
 
   const toggleSort = (key: SortKey) => {
     setSort(prev => {

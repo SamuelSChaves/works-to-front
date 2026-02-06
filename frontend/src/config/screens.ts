@@ -113,6 +113,14 @@ export const SCREEN_PERMISSIONS: ScreenPermissionConfig[] = [
     exclusao: false
   },
   {
+    id: 'incidentes',
+    label: 'Incidentes TO',
+    leitura: true,
+    criacao: true,
+    edicao: true,
+    exclusao: false
+  },
+  {
     id: 'gestao-material',
     label: 'Gestão Material',
     leitura: true,
@@ -169,7 +177,6 @@ export const SCREEN_PERMISSIONS: ScreenPermissionConfig[] = [
     exclusao: false
   }
 ]
-
 
 
 

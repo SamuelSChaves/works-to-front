@@ -7,12 +7,13 @@ import {
   type FormEvent
 } from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
-import { getStoredUser } from '../services/auth'
+import { getStoredPermissions, getStoredUser } from '../services/auth'
 import {
   PARAMETRO_TIPOS,
   createParametro,
   getParametros,
-  updateParametro
+  updateParametro,
+  deleteParametro
 } from '../services/api'
 import type {
   ParametroCadastroAtivo,
@@ -38,6 +39,8 @@ export function ConfiguracaoCadastroAtivos() {
   const [editingParametroId, setEditingParametroId] = useState<string | null>(null)
   const companyId = useMemo(() => getStoredUser()?.empresaId ?? '', [])
   const [expanded, setExpanded] = useState(true)
+  const permissions = useMemo(() => getStoredPermissions(), [])
+  const canDeleteParametros = permissions?.configuracao?.exclusao === true
 
   const loadParametros = useCallback(async () => {
     if (!companyId) {
@@ -100,6 +103,45 @@ export function ConfiguracaoCadastroAtivos() {
   const handleCancelEdit = () => {
     setEditingParametroId(null)
     setFormState({ ...initialFormState })
+  }
+
+  const deleteParametroById = useCallback(
+    async (id: string) => {
+      setBusyRows(prev => ({ ...prev, [id]: true }))
+      try {
+        await deleteParametro(id)
+        await loadParametros()
+      } finally {
+        setBusyRows(prev => {
+          const next = { ...prev }
+          delete next[id]
+          return next
+        })
+      }
+    },
+    [loadParametros]
+  )
+
+  const handleDeleteRow = async (parametro: ParametroCadastroAtivo) => {
+    if (!canDeleteParametros) return
+    if (!confirm('Tem certeza que deseja excluir este parâmetro?')) {
+      return
+    }
+    setErrorMessage(null)
+    try {
+      await deleteParametroById(parametro.id_parametro)
+      if (editingParametroId === parametro.id_parametro) {
+        setFormState({ ...initialFormState })
+        setEditingParametroId(null)
+      }
+    } catch (error) {
+      console.error(error)
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : 'Não foi possível excluir o parâmetro.'
+      )
+    }
   }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -469,73 +511,81 @@ export function ConfiguracaoCadastroAtivos() {
                   }}
                 >
                   <thead>
-                    <tr>
-                      <th style={tableHeadStyle}>Tipo do parametro</th>
-                      <th style={tableHeadStyle}>Valor</th>
-                      <th style={tableHeadStyle}>Ordem</th>
-                      <th style={tableHeadStyle}>Ativo</th>
-                    </tr>
+                <tr>
+                  <th style={tableHeadStyle}>Tipo do parametro</th>
+                  <th style={tableHeadStyle}>Valor</th>
+                  <th style={tableHeadStyle}>Ordem</th>
+                  <th style={tableHeadStyle}>Ativo</th>
+                  <th style={tableHeadStyle}>Ações</th>
+                </tr>
                   </thead>
                   <tbody>
-                    {sortedParametros.map(parametro => (
-                      <tr key={parametro.id_parametro}>
-                        <td style={tableCellStyle}>{parametro.tipo_parametro}</td>
-                        <td style={tableCellStyle}>
-                          <div
-                            style={{
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                              gap: 12
-                            }}
-                          >
+                    {sortedParametros.map(parametro => {
+                      const rowBusy = Boolean(busyRows[parametro.id_parametro])
+                      return (
+                        <tr key={parametro.id_parametro}>
+                          <td style={tableCellStyle}>{parametro.tipo_parametro}</td>
+                          <td style={tableCellStyle}>
                             <span>{parametro.valor}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleRowEdit(parametro)}
+                          </td>
+                          <td style={tableCellStyle}>
+                            {parametro.ordem ?? '-'}
+                          </td>
+                          <td style={tableCellStyle}>
+                            <label
                               style={{
-                                padding: '4px 10px',
-                                borderRadius: 8,
-                                border: '1px solid #cbd5f5',
-                                background: '#f8fafc',
-                                color: '#0f172a',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 8,
                                 fontWeight: 600,
-                                cursor: 'pointer'
+                                color: parametro.ativo ? '#0f172a' : '#475569'
                               }}
                             >
-                              Editar
-                            </button>
-                          </div>
-                        </td>
-                        <td style={tableCellStyle}>
-                          {parametro.ordem ?? '-'}
-                        </td>
-                        <td style={tableCellStyle}>
-                          <label
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 8,
-                              fontWeight: 600,
-                              color: parametro.ativo ? '#0f172a' : '#475569'
-                            }}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={parametro.ativo}
-                              onChange={() => toggleActive(parametro)}
-                              disabled={Boolean(busyRows[parametro.id_parametro])}
-                              style={{
-                                width: 16,
-                                height: 16,
-                                accentColor: parametro.ativo ? '#22c55e' : '#cbd5f5'
-                              }}
-                            />
-                            {parametro.ativo ? 'Ativo' : 'Inativo'}
-                          </label>
-                        </td>
-                      </tr>
-                    ))}
+                              <input
+                                type="checkbox"
+                                checked={parametro.ativo}
+                                onChange={() => toggleActive(parametro)}
+                                disabled={rowBusy}
+                                style={{
+                                  width: 16,
+                                  height: 16,
+                                  accentColor: parametro.ativo ? '#22c55e' : '#cbd5f5'
+                                }}
+                              />
+                              {parametro.ativo ? 'Ativo' : 'Inativo'}
+                            </label>
+                          </td>
+                          <td style={tableCellStyle}>
+                            <div style={tableActionButtonsWrapperStyle}>
+                              <button
+                                type="button"
+                                onClick={() => handleRowEdit(parametro)}
+                                disabled={rowBusy}
+                                style={{
+                                  ...tableEditButtonStyle,
+                                  cursor: rowBusy ? 'not-allowed' : 'pointer'
+                                }}
+                              >
+                                Editar
+                              </button>
+                              {canDeleteParametros && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteRow(parametro)}
+                                  disabled={rowBusy}
+                                  style={{
+                                    ...tableDeleteButtonStyle,
+                                    cursor: rowBusy ? 'not-allowed' : 'pointer'
+                                  }}
+                                >
+                                  Excluir
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -563,6 +613,31 @@ const tableCellStyle: CSSProperties = {
   fontSize: 14,
   color: '#0f172a',
   borderBottom: '1px solid #e2e8f0'
+}
+
+const tableActionButtonsWrapperStyle: CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  justifyContent: 'center',
+  flexWrap: 'wrap'
+}
+
+const tableEditButtonStyle: CSSProperties = {
+  padding: '4px 10px',
+  borderRadius: 8,
+  border: '1px solid #cbd5f5',
+  background: '#f8fafc',
+  color: '#0f172a',
+  fontWeight: 600
+}
+
+const tableDeleteButtonStyle: CSSProperties = {
+  padding: '4px 10px',
+  borderRadius: 8,
+  border: '1px solid #fca5a5',
+  background: '#fee2e2',
+  color: '#b91c1c',
+  fontWeight: 600
 }
 
 

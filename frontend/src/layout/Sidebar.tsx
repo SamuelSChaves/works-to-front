@@ -184,10 +184,23 @@ const menu: MenuItem[] = [
     ]
   },
   {
-    id: 'acoes',
-    label: getScreenLabel('acoes', 'Ações TO'),
-    path: '/app/acoes',
-    icon: ClipboardCheck
+    id: 'central-acoes',
+    label: 'Central de Ações',
+    icon: ClipboardList,
+    children: [
+      {
+        id: 'acoes',
+        label: getScreenLabel('acoes', 'Ações TO'),
+        path: '/app/acoes',
+        icon: ClipboardCheck
+      },
+      {
+        id: 'incidentes',
+        label: 'Incidentes TO',
+        path: '/app/incidentes',
+        icon: Activity
+      }
+    ]
   },
   {
     id: 'configuracoes',

@@ -1,5 +1,5 @@
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import type { ChangeEvent } from 'react'
 
 import { Modal } from '../components/Modal'
@@ -23,11 +23,11 @@ import {
   readPersistedOrigemGroups
 } from '../utils/acoesStorage'
 import { normalizeActionRow } from '../utils/actions'
-import {
-  sampleActions,
-  type AcaoRecord,
-  type AcaoStatus
-} from '../data/sampleActions'
+import { Eye } from 'lucide-react'
+import type { AcaoRecord, AcaoStatus } from '../types/acao'
+import { getStoredActions, setStoredActions } from '../data/actionStore'
+import { getStoredIncidents, subscribeToIncidents } from '../data/incidentStore'
+import type { IncidenteRecord } from '../types/incidents'
 
 type FilterState = {
   responsavel: string
@@ -49,6 +49,7 @@ type ActionFormState = {
   texto_acao: string
   texto_enerramento: string
   texto_devolutiva: string
+  incidente_codigo?: string
 }
 
 type ActionUser = { id: string; nome: string }
@@ -88,13 +89,14 @@ const createActionForm = (user: User | null): ActionFormState => ({
   data_vencimento: '',
   texto_acao: '',
   texto_enerramento: '',
-  texto_devolutiva: ''
+  texto_devolutiva: '',
+  incidente_codigo: ''
 })
 
 export function AcoesTO() {
-  const [actions, setActions] = useState<AcaoRecord[]>(sampleActions)
+  const [actions, setActions] = useState<AcaoRecord[]>(() => [...getStoredActions()])
   const [filters, setFilters] = useState<FilterState>(initialFilters)
-  const [modalMode, setModalMode] = useState<'create' | 'edit'>('create')
+  const [modalMode, setModalMode] = useState<'create' | 'edit' | 'view'>('create')
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [selectedAction, setSelectedAction] = useState<AcaoRecord | null>(null)
   const [currentUser, setCurrentUser] = useState<User | null>(() => getStoredUser())
@@ -108,10 +110,20 @@ export function AcoesTO() {
   const [attachmentsLoading, setAttachmentsLoading] = useState(false)
   const [attachmentsError, setAttachmentsError] = useState<string | null>(null)
   const [uploadingAttachments, setUploadingAttachments] = useState(false)
+  const [incidentOptions, setIncidentOptions] = useState<IncidenteRecord[]>(() => [
+    ...getStoredIncidents()
+  ])
 
   useEffect(() => {
     const unsubscribe = subscribeToUserChanges(() => {
       setCurrentUser(getStoredUser())
+    })
+    return unsubscribe
+  }, [])
+
+  useEffect(() => {
+    const unsubscribe = subscribeToIncidents(current => {
+      setIncidentOptions([...current])
     })
     return unsubscribe
   }, [])
@@ -130,7 +142,11 @@ export function AcoesTO() {
           id_usuario_responsavel: currentUser.id
         }))
       }
-    }, [currentUser, modalMode])
+  }, [currentUser, modalMode])
+
+  useEffect(() => {
+    setStoredActions(actions)
+  }, [actions])
 
   useEffect(() => {
     if (!currentUser) {
@@ -214,7 +230,7 @@ export function AcoesTO() {
     let cancelled = false
     const token = getStoredToken()
     if (!token) {
-      setActions(sampleActions)
+      setActions([])
       return
     }
 
@@ -239,7 +255,7 @@ export function AcoesTO() {
           : []
 
         if (!rows.length) {
-          setActions(sampleActions)
+          setActions([])
           return
         }
 
@@ -248,7 +264,7 @@ export function AcoesTO() {
       } catch (error) {
         console.error('Erro ao carregar ações pendentes.', error)
         if (!cancelled) {
-          setActions(sampleActions)
+          setActions([])
         }
       }
     }
@@ -325,11 +341,12 @@ export function AcoesTO() {
     }
   }, [selectedAction, modalMode, isModalOpen])
 
-  const userRole = currentUser?.role?.toLowerCase() ?? 'leitura'
-  const canCreateAction = userRole === 'admin' || userRole === 'edicao'
+  const userRole = currentUser?.role?.trim().toLowerCase() ?? 'leitura'
+  const isAdminRole = userRole === 'admin' || userRole === 'administrador'
+  const canCreateAction = isAdminRole || userRole === 'edicao'
   const canModifyAction = (action: AcaoRecord | null) => {
     if (!action || !currentUser) return false
-    if (userRole === 'admin' || userRole === 'edicao') return true
+    if (action.status === 'Concluída') return false
     return (
       currentUser.id === action.id_usuario_responsavel ||
       currentUser.id === action.id_usuario_solicitante
@@ -357,9 +374,38 @@ export function AcoesTO() {
     })
   }, [actions, filters])
 
+  const sortedFilteredActions = useMemo(() => {
+    return [...filteredActions].sort((a, b) => {
+      const aTime = new Date(a.data_criado || '').getTime() || 0
+      const bTime = new Date(b.data_criado || '').getTime() || 0
+      return bTime - aTime
+    })
+  }, [filteredActions])
+
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+  const totalPages = Math.max(1, Math.ceil(sortedFilteredActions.length / pageSize))
+  const pagedActions = useMemo(() => {
+    const start = (page - 1) * pageSize
+    return sortedFilteredActions.slice(start, start + pageSize)
+  }, [page, pageSize, sortedFilteredActions])
+
+  const pageStart = sortedFilteredActions.length ? (page - 1) * pageSize + 1 : 0
+  const pageEnd = Math.min(page * pageSize, sortedFilteredActions.length)
+
+  useEffect(() => {
+    setPage(1)
+  }, [filters, sortedFilteredActions.length])
+
   const responsibleIds = useMemo(() => {
     return Array.from(new Set(actions.map(action => action.id_usuario_responsavel))).filter(Boolean)
   }, [actions])
+
+  const eligibleIncidents = useMemo(() => {
+    return incidentOptions.filter(
+      incident => incident.status === 'Aberto' || incident.status === 'Em andamento'
+    )
+  }, [incidentOptions])
 
   const activeGroupNames = useMemo(() => {
     return actionGroups.filter(group => group.status === 'Ativo').map(group => group.nome)
@@ -418,6 +464,9 @@ export function AcoesTO() {
   }
 
   const openEditModal = (action: AcaoRecord) => {
+    if (action.status === 'Concluída' || !canModifyAction(action)) {
+      return
+    }
     setModalMode('edit')
     setSelectedAction(action)
     setFormState({
@@ -431,12 +480,34 @@ export function AcoesTO() {
       data_vencimento: action.data_vencimento,
       texto_acao: action.texto_acao,
       texto_enerramento: action.texto_enerramento,
-      texto_devolutiva: action.texto_devolutiva
+      texto_devolutiva: action.texto_devolutiva,
+      incidente_codigo: action.incidente_codigo ?? ''
+    })
+    setIsModalOpen(true)
+  }
+
+  const openViewModal = (action: AcaoRecord) => {
+    setModalMode('view')
+    setSelectedAction(action)
+    setFormState({
+      id_company: action.id_company,
+      id_usuario_solicitante: action.id_usuario_solicitante,
+      id_usuario_responsavel: action.id_usuario_responsavel,
+      status: action.status,
+      grupo_acao: action.grupo_acao,
+      origem_acao: action.origem_acao,
+      criticidade: action.criticidade,
+      data_vencimento: action.data_vencimento,
+      texto_acao: action.texto_acao,
+      texto_enerramento: action.texto_enerramento,
+      texto_devolutiva: action.texto_devolutiva,
+      incidente_codigo: action.incidente_codigo ?? ''
     })
     setIsModalOpen(true)
   }
 
   const handleSave = () => {
+    if (isViewMode) return
     if (!formState.grupo_acao.trim() || !formState.texto_acao.trim()) return
 
     if (modalMode === 'create') {
@@ -444,6 +515,7 @@ export function AcoesTO() {
       const newAction: AcaoRecord = {
         id_company: formState.id_company || currentUser?.empresaId || '',
         id_acao: nextId,
+        id_acao_raw: `acao_${String(nextId).padStart(3, '0')}`,
         id_usuario_solicitante: formState.id_usuario_solicitante,
         id_usuario_responsavel: formState.id_usuario_responsavel,
         data_criado: new Date().toISOString().split('T')[0],
@@ -455,7 +527,8 @@ export function AcoesTO() {
         criticidade: formState.criticidade,
         texto_acao: formState.texto_acao.trim(),
         texto_enerramento: '',
-        texto_devolutiva: ''
+        texto_devolutiva: '',
+        incidente_codigo: formState.incidente_codigo?.trim() || undefined
       }
 
       setActions(prev => [newAction, ...prev])
@@ -477,7 +550,8 @@ export function AcoesTO() {
       data_vencimento: formState.data_vencimento,
       texto_acao: formState.texto_acao.trim(),
       texto_enerramento: formState.texto_enerramento.trim(),
-      texto_devolutiva: formState.texto_devolutiva.trim()
+      texto_devolutiva: formState.texto_devolutiva.trim(),
+      incidente_codigo: formState.incidente_codigo?.trim() || undefined
     }
 
     setActions(prev => prev.map(action => (action.id_acao === selectedAction.id_acao ? updatedAction : action)))
@@ -503,11 +577,13 @@ export function AcoesTO() {
     setAttachmentsError(null)
     setAttachmentsLoading(true)
 
+    const actionIdForApi =
+      selectedAction.id_acao_raw || String(selectedAction.id_acao)
     try {
       for (const file of Array.from(files)) {
-        await uploadActionAttachment(selectedAction.id_acao, file, token)
+        await uploadActionAttachment(actionIdForApi, file, token)
       }
-      const refreshed = await listActionAttachments(selectedAction.id_acao, token)
+      const refreshed = await listActionAttachments(actionIdForApi, token)
       setActionAttachments(refreshed)
     } catch (error) {
       setAttachmentsError(
@@ -544,9 +620,17 @@ export function AcoesTO() {
     setAttachmentsLoading(false)
   }
 
-  const hasEditPermission = modalMode === 'create' ? canCreateAction : canModifyAction(selectedAction)
-  const canSave = hasEditPermission && formState.grupo_acao.trim() && formState.texto_acao.trim()
-  const fieldsTemplate = '2.5fr 1fr 1fr 1fr 0.9fr 1fr 1fr 0.9fr'
+  const isViewMode = modalMode === 'view'
+  const hasEditPermission =
+    modalMode === 'create'
+      ? canCreateAction
+      : modalMode === 'edit'
+      ? canModifyAction(selectedAction)
+      : false
+  const canSave =
+    hasEditPermission &&
+    formState.grupo_acao.trim() &&
+    formState.texto_acao.trim()
   const solicitanteNome =
     nameLookup[formState.id_usuario_solicitante] || currentUser?.nome || currentUser?.email || 'Solicitante não carregado'
 
@@ -653,23 +737,6 @@ export function AcoesTO() {
           }}
         >
           <div style={{ fontWeight: 600, fontSize: 16 }}>Filtros</div>
-          {canCreateAction && (
-            <button
-              type="button"
-              onClick={openCreateModal}
-              style={{
-                padding: '10px 18px',
-                borderRadius: 12,
-                border: 'none',
-                background: 'linear-gradient(90deg, #2563eb, #312e81)',
-                color: '#ffffff',
-                fontWeight: 600,
-                cursor: 'pointer'
-              }}
-            >
-              Nova ação
-            </button>
-          )}
         </div>
 
         <div
@@ -790,124 +857,185 @@ export function AcoesTO() {
           </label>
         </div>
 
-        <div
-          style={{
-            borderRadius: 18,
-            border: '1px solid #e2e8f0',
-            background: '#ffffff',
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden'
-          }}
-        >
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: fieldsTemplate,
-              gap: 0,
-              padding: '12px 12px',
-              background: '#f8fafc',
-              fontSize: 12,
-              fontWeight: 600,
-              color: '#475569'
-            }}
-          >
-            <span>Descrição</span>
-            <span>Responsável</span>
-            <span>Grupo</span>
-            <span>Origem</span>
-            <span>Criticidade</span>
-            <span>Vencimento</span>
-            <span>Status</span>
-            <span style={{ justifySelf: 'end' }}>Ações</span>
+        {canCreateAction && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '12px 0' }}>
+            <button type="button" onClick={openCreateModal} style={newActionButtonStyle}>
+              Nova ação
+            </button>
           </div>
+        )}
 
-          {filteredActions.length === 0 ? (
-            <div
-              style={{
-                padding: '20px 12px',
-                color: '#94a3b8',
-                fontSize: 13,
-                textAlign: 'center'
-              }}
-            >
-              Nenhuma ação encontrada.
+        <div style={actionsTableCardStyle}>
+          <div style={actionsTableHeaderStyle}>
+            <div style={actionsHeaderTextStyle}>
+              <span style={{ fontWeight: 600 }}>Ações</span>
+              <span style={{ fontSize: 13, color: '#475569' }}>
+                {sortedFilteredActions.length ? 'Ordenadas da mais nova para a mais antiga' : 'Nenhuma ação encontrada'}
+              </span>
             </div>
-          ) : (
-            filteredActions.map(action => {
-              const responsavelNome = nameLookup[action.id_usuario_responsavel] || action.id_usuario_responsavel
-              const solicitanteNome = nameLookup[action.id_usuario_solicitante] || action.id_usuario_solicitante
-              const statusStyle = statusStyles[action.status] ?? statusStyles.Aberta
-              const podeEditar = canModifyAction(action)
-              const vencimentoFormatado = action.data_vencimento ? formatDate(action.data_vencimento) : '—'
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            {sortedFilteredActions.length === 0 ? (
+              <div
+                style={{
+                  padding: '20px 12px',
+                  color: '#94a3b8',
+                  fontSize: 13,
+                  textAlign: 'center'
+                }}
+              >
+                Nenhuma ação encontrada.
+              </div>
+            ) : (
+              <table style={actionsTableStyle}>
+                <thead>
+                <tr>
+                  <th style={tableHeadStyle}>ID</th>
+                  <th style={tableHeadCenterStyle}>Ação</th>
+                  <th style={tableHeadCenterStyle}>Responsável</th>
+                  <th style={tableHeadCenterStyle}>Grupo</th>
+                  <th style={tableHeadCenterStyle}>Origem</th>
+                  <th style={tableHeadCenterStyle}>Criticidade</th>
+                  <th style={tableHeadCenterStyle}>Vencimento</th>
+                  <th style={tableHeadCenterStyle}>Status</th>
+                  <th style={tableHeadCenterStyle}>Visualizar</th>
+                </tr>
+                </thead>
+                <tbody>
+                  {pagedActions.map(action => {
+                    const responsavelNome = nameLookup[action.id_usuario_responsavel] || action.id_usuario_responsavel
+                    const solicitanteNome = nameLookup[action.id_usuario_solicitante] || action.id_usuario_solicitante
+                    const statusStyle = statusStyles[action.status] ?? statusStyles.Aberta
+                    const podeEditar = canModifyAction(action)
+                    const vencimentoFormatado = action.data_vencimento ? formatDate(action.data_vencimento) : '—'
 
-              return (
-                <div
-                  key={action.id_acao}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: fieldsTemplate,
-                    alignItems: 'center',
-                    gap: 0,
-                    padding: '14px 12px',
-                    borderTop: '1px solid #f1f5f9'
-                  }}
-                >
-                  <div>
-                    <div
-                      style={{
-                        fontWeight: 600,
-                        color: '#0f172a',
-                        lineHeight: 1.4,
-                        wordBreak: 'break-word'
-                      }}
-                    >
-                      #{action.id_acao} {action.texto_acao}
-                    </div>
-                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 6 }}>
-                      Solicitante: {solicitanteNome}
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 13, color: '#0f172a' }}>{responsavelNome}</div>
-                  <div style={{ fontSize: 13, color: '#0f172a' }}>{action.grupo_acao || '—'}</div>
-                  <div style={{ fontSize: 13, color: '#0f172a' }}>{action.origem_acao || '—'}</div>
-                  <div style={{ fontSize: 13, color: '#0f172a' }}>{action.criticidade || '—'}</div>
-                  <div style={{ fontSize: 13, color: '#0f172a' }}>{vencimentoFormatado}</div>
-                  <div>
-                    <span
-                      style={{
-                        padding: '4px 10px',
-                        borderRadius: 999,
-                        fontSize: 12,
-                        fontWeight: 600,
-                        background: statusStyle.background,
-                        color: statusStyle.color
-                      }}
-                    >
-                      {action.status}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    return (
+                      <tr key={action.id_acao} style={tableRowStyle}>
+                <td style={tableCellStyle}>
+                  {podeEditar ? (
                     <button
                       type="button"
                       onClick={() => openEditModal(action)}
-                      disabled={!podeEditar}
                       style={{
-                        borderRadius: 10,
-                        border: '1px solid #2563eb',
-                        background: podeEditar ? '#2563eb' : '#d1d5db',
-                        color: '#ffffff',
-                        padding: '8px 14px',
-                        cursor: podeEditar ? 'pointer' : 'not-allowed',
-                        fontWeight: 600
+                        border: 'none',
+                        background: 'none',
+                        padding: 0,
+                        margin: 0,
+                        font: 'inherit',
+                        color: '#2563eb',
+                        fontWeight: 600,
+                        cursor: 'pointer'
                       }}
                     >
-                      Editar
+                      #{action.id_acao}
                     </button>
+                  ) : (
+                    <span style={{ fontWeight: 600 }}>#{action.id_acao}</span>
+                  )}
+                </td>
+                <td style={tableCellCenterStyle}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6
+                    }}
+                  >
+                    <span style={{ fontWeight: 600, color: '#0f172a', lineHeight: 1.4 }}>
+                      {action.texto_acao}
+                    </span>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>
+                      Solicitante: {solicitanteNome}
+                    </div>
                   </div>
+                </td>
+                <td style={tableCellCenterStyle}>{responsavelNome}</td>
+                <td style={tableCellCenterStyle}>{action.grupo_acao || '—'}</td>
+                <td style={tableCellCenterStyle}>{action.origem_acao || '—'}</td>
+                <td style={tableCellCenterStyle}>{action.criticidade || '—'}</td>
+                <td style={tableCellCenterStyle}>{vencimentoFormatado}</td>
+                <td style={tableCellCenterStyle}>
+                  <span
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: 999,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      background: statusStyle.background,
+                      color: statusStyle.color
+                    }}
+                  >
+                    {action.status}
+                  </span>
+                </td>
+                <td style={tableCellCenterStyle}>
+                  <button
+                    type="button"
+                    onClick={() => openViewModal(action)}
+                    style={visualButtonStyle}
+                    title="Visualizar ação"
+                  >
+                    <Eye size={16} />
+                  </button>
+                </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+          {sortedFilteredActions.length > 0 && (
+            <div style={paginationRowStyle}>
+              <span style={{ fontSize: 13, color: '#475569' }}>
+                Mostrando {pageStart}-{pageEnd} de {sortedFilteredActions.length}
+              </span>
+              <div style={paginationControlsStyle}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#475569' }}>
+                  Mostrar
+                  <select
+                    value={pageSize}
+                    onChange={event => {
+                      setPageSize(Number(event.target.value))
+                      setPage(1)
+                    }}
+                    style={{
+                      borderRadius: 8,
+                      border: '1px solid #e2e8f0',
+                      padding: '6px 10px',
+                      background: '#ffffff',
+                      fontSize: 13
+                    }}
+                  >
+                    {[10, 25, 50].map(size => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => setPage(prev => Math.max(1, prev - 1))}
+                    disabled={page <= 1}
+                    style={paginationButtonStyle}
+                  >
+                    Anterior
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPage(prev => Math.min(totalPages, prev + 1))}
+                    disabled={page >= totalPages}
+                    style={paginationButtonStyle}
+                  >
+                    Próxima
+                  </button>
                 </div>
-              )
-            })
+              </div>
+            </div>
           )}
         </div>
       </section>
@@ -932,22 +1060,24 @@ export function AcoesTO() {
             >
               Cancelar
             </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={!canSave}
-              style={{
-                padding: '8px 14px',
-                borderRadius: 10,
-                border: 'none',
-                background: canSave ? 'linear-gradient(90deg, #2563eb, #1d4ed8)' : '#9ca3af',
-                color: '#ffffff',
-                fontWeight: 600,
-                cursor: canSave ? 'pointer' : 'not-allowed'
-              }}
-            >
-              Salvar
-            </button>
+            {hasEditPermission && (
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={!canSave}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: 10,
+                  border: 'none',
+                  background: canSave ? 'linear-gradient(90deg, #2563eb, #1d4ed8)' : '#9ca3af',
+                  color: '#ffffff',
+                  fontWeight: 600,
+                  cursor: canSave ? 'pointer' : 'not-allowed'
+                }}
+              >
+                Salvar
+              </button>
+            )}
           </>
         }
       >
@@ -1113,6 +1243,35 @@ export function AcoesTO() {
                   color: '#0f172a'
                 }}
               />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: 12, color: '#64748b' }}>Incidente vinculado (opcional)</span>
+              <input
+                list="incidentOptions"
+                value={formState.incidente_codigo ?? ''}
+                onChange={event =>
+                  setFormState(prev => ({ ...prev, incidente_codigo: event.target.value }))
+                }
+                disabled={!hasEditPermission}
+                placeholder="Código do incidente"
+                style={{
+                  borderRadius: 10,
+                  border: '1px solid #e2e8f0',
+                  padding: '10px 12px',
+                  background: '#ffffff',
+                  color: '#0f172a'
+                }}
+              />
+              <datalist id="incidentOptions">
+                {eligibleIncidents.map(incident => (
+                  <option key={incident.codigo} value={incident.codigo}>
+                    {incident.titulo}
+                  </option>
+                ))}
+              </datalist>
+              <span style={{ fontSize: 11, color: '#64748b' }}>
+                Apenas incidentes em status Aberto ou Em andamento aparecem aqui.
+              </span>
             </label>
           </div>
 
@@ -1322,4 +1481,114 @@ function formatFileSize(value: number | null): string {
   }
   const megabytes = kilobytes / 1024
   return `${megabytes.toFixed(1)} MB`
+}
+
+const actionsTableCardStyle: CSSProperties = {
+  borderRadius: 18,
+  border: '1px solid #e2e8f0',
+  background: '#ffffff',
+  display: 'flex',
+  flexDirection: 'column',
+  overflow: 'hidden',
+  gap: 16
+}
+
+const actionsTableHeaderStyle: CSSProperties = {
+  padding: '16px 20px 0',
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'flex-start',
+  gap: 12
+}
+
+const actionsHeaderTextStyle: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4
+}
+
+const actionsTableStyle: CSSProperties = {
+  width: '100%',
+  borderCollapse: 'collapse',
+  minWidth: 720
+}
+
+const tableHeadStyle: CSSProperties = {
+  textAlign: 'left',
+  padding: '12px 16px',
+  fontSize: 12,
+  fontWeight: 600,
+  color: '#475569',
+  borderBottom: '1px solid #e2e8f0',
+  background: '#f8fafc'
+}
+
+const tableHeadCenterStyle: CSSProperties = {
+  ...tableHeadStyle,
+  textAlign: 'center'
+}
+
+const tableCellStyle: CSSProperties = {
+  padding: '14px 16px',
+  fontSize: 13,
+  color: '#0f172a',
+  borderBottom: '1px solid #f1f5f9',
+  verticalAlign: 'top'
+}
+
+const tableCellCenterStyle: CSSProperties = {
+  ...tableCellStyle,
+  textAlign: 'center'
+}
+
+const tableRowStyle: CSSProperties = {
+  background: '#ffffff'
+}
+
+const paginationRowStyle: CSSProperties = {
+  padding: '16px 20px',
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  flexWrap: 'wrap',
+  gap: 12
+}
+
+const paginationControlsStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12
+}
+
+const paginationButtonStyle: CSSProperties = {
+  padding: '6px 12px',
+  borderRadius: 8,
+  border: '1px solid #cbd5f5',
+  background: '#ffffff',
+  color: '#0f172a',
+  cursor: 'pointer',
+  fontSize: 13,
+  fontWeight: 600
+}
+
+const visualButtonStyle: CSSProperties = {
+  padding: 6,
+  borderRadius: '50%',
+  border: '1px solid #c7d2fe',
+  background: '#eff6ff',
+  color: '#2563eb',
+  cursor: 'pointer',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center'
+}
+
+const newActionButtonStyle: CSSProperties = {
+  padding: '10px 18px',
+  borderRadius: 12,
+  border: 'none',
+  background: 'linear-gradient(90deg, #2563eb, #312e81)',
+  color: '#ffffff',
+  fontWeight: 600,
+  cursor: 'pointer'
 }

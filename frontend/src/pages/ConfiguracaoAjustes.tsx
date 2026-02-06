@@ -1348,7 +1348,7 @@ const [actionGroups, setActionGroups] = useState<GrupoAcao[]>(() =>
               fontSize: 16
             }}
           >
-              Ã¢â€“Â¾
+              Ocultar
           </span>
         </button>
           {isCodigoExpanded && (
@@ -1669,9 +1669,9 @@ const [actionGroups, setActionGroups] = useState<GrupoAcao[]>(() =>
           <div style={sectionCardStyle}>
             <div style={sectionHeaderStyle}>
               <div>
-                <strong>Grupos de Ações</strong>
+                <strong>Grupos de AÃ§Ãµes</strong>
                 <p style={{ margin: '6px 0 0', color: '#64748b' }}>
-                  Registre e categorize os grupos que usam as ações TO para alinhamento
+                  Registre e categorize os grupos que usam as aÃ§Ãµes TO para alinhamento
                   de criticidade e departamento.
                 </p>
               </div>
@@ -1749,7 +1749,7 @@ const [actionGroups, setActionGroups] = useState<GrupoAcao[]>(() =>
                   <div>
                     <strong>{editingGroupId ? 'Atualizar grupo' : 'Criar novo grupo'}</strong>
                     <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
-                      Defina o nome, descrição e o status dos grupos de ações usados na operação.
+                      Defina o nome, descriÃ§Ã£o e o status dos grupos de aÃ§Ãµes usados na operaÃ§Ã£o.
                     </p>
                   </div>
                   <label style={{ display: 'flex', flexDirection: 'column' as const, gap: 6 }}>
@@ -1763,7 +1763,7 @@ const [actionGroups, setActionGroups] = useState<GrupoAcao[]>(() =>
                     />
                   </label>
                   <label style={{ display: 'flex', flexDirection: 'column' as const, gap: 6 }}>
-                    <span style={{ fontSize: 12, color: '#475569' }}>Descrição</span>
+                    <span style={{ fontSize: 12, color: '#475569' }}>DescriÃ§Ã£o</span>
                     <textarea
                       rows={2}
                       value={groupForm.descricao}
@@ -1841,7 +1841,7 @@ const [actionGroups, setActionGroups] = useState<GrupoAcao[]>(() =>
               <div>
                 <strong>Grupo de Origem</strong>
                 <p style={{ margin: '6px 0 0', color: '#64748b', fontSize: 13 }}>
-                  Categorize as origens que disparam as ações TO para melhor rastreamento.
+                  Categorize as origens que disparam as aÃ§Ãµes TO para melhor rastreamento.
                 </p>
               </div>
               <button
@@ -1929,7 +1929,7 @@ const [actionGroups, setActionGroups] = useState<GrupoAcao[]>(() =>
                     ))
                   ) : (
                     <p style={{ color: '#94a3b8', fontSize: 13, margin: 0 }}>
-                      Ainda não há grupos de origem registrados.
+                      Ainda nÃ£o hÃ¡ grupos de origem registrados.
                     </p>
                   )}
                 </div>
@@ -1945,7 +1945,7 @@ const [actionGroups, setActionGroups] = useState<GrupoAcao[]>(() =>
                   <div>
                     <strong>{editingOrigemGroup ? 'Atualizar origem' : 'Criar origem'}</strong>
                     <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
-                      Use um nome claro para representar a origem das ações TO.
+                      Use um nome claro para representar a origem das aÃ§Ãµes TO.
                     </p>
                   </div>
                   <label style={{ display: 'flex', flexDirection: 'column' as const, gap: 6 }}>
@@ -1994,7 +1994,7 @@ const [actionGroups, setActionGroups] = useState<GrupoAcao[]>(() =>
                         fontWeight: 600
                       }}
                     >
-                      {editingOrigemGroup ? 'Salvar alterações' : 'Adicionar grupo'}
+                      {editingOrigemGroup ? 'Salvar alteraÃ§Ãµes' : 'Adicionar grupo'}
                     </button>
                   </div>
                 </div>

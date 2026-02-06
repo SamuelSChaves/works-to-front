@@ -17,6 +17,9 @@ const lazyLoad = <T extends ComponentType<Record<string, unknown>>>(
 const LoginPage = lazyLoad(() =>
   import('./pages/Login').then(module => ({ default: module.Login }))
 )
+const ConfirmLoginPage = lazyLoad(() =>
+  import('./pages/ConfirmLogin').then(module => ({ default: module.ConfirmLogin }))
+)
 const ResetPasswordPage = lazyLoad(() =>
   import('./pages/ResetPassword').then(module => ({
     default: module.ResetPassword
@@ -109,6 +112,9 @@ const ProdutividadeRotogramaPage = lazyLoad(() =>
 const AcoesTOPage = lazyLoad(() =>
   import('./pages/AcoesTO').then(module => ({ default: module.AcoesTO }))
 )
+const IncidentesTOPage = lazyLoad(() =>
+  import('./pages/IncidentesTO').then(module => ({ default: module.IncidentesTO }))
+)
 const DataUploadPage = lazyLoad(() =>
   import('./pages/DataUpload').then(module => ({ default: module.DataUpload }))
 )
@@ -120,6 +126,16 @@ export const router = createBrowserRouter([
       <RedirectIfAuthenticated>
         <SuspenseLoader>
           <LoginPage />
+        </SuspenseLoader>
+      </RedirectIfAuthenticated>
+    )
+  },
+  {
+    path: '/confirmar-login',
+    element: (
+      <RedirectIfAuthenticated>
+        <SuspenseLoader>
+          <ConfirmLoginPage />
         </SuspenseLoader>
       </RedirectIfAuthenticated>
     )
@@ -253,6 +269,14 @@ export const router = createBrowserRouter([
         element: (
           <SuspenseLoader>
             <AcoesTOPage />
+          </SuspenseLoader>
+        )
+      },
+      {
+        path: 'incidentes',
+        element: (
+          <SuspenseLoader>
+            <IncidentesTOPage />
           </SuspenseLoader>
         )
       },

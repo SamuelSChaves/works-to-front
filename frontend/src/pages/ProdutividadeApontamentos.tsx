@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { getStoredUser } from '../services/auth'
+import { Modal } from '../components/Modal'
 
 type ApontamentoRecord = {
   id_company: string
@@ -33,7 +34,7 @@ const sampleRecords: ApontamentoRecord[] = [
     criado_em: '2026-01-19 07:20',
     tecnico: 'Ana Lucia',
     ativo: 'Transformador 12kV',
-    observacao: 'InspeÃƒÂ§ÃƒÂ£o visual e limpeza leve.'
+    observacao: 'Inspe��o visual e limpeza leve.'
   },
   {
     id_company: 'COMPANY-01',
@@ -48,7 +49,7 @@ const sampleRecords: ApontamentoRecord[] = [
     criado_por: 'Carlos Mendes',
     criado_em: '2026-01-18 12:55',
     tecnico: 'Carlos Mendes',
-    ativo: 'SubestaÃƒÂ§ÃƒÂ£o Sul',
+    ativo: 'Subesta��o Sul',
     observacao: 'Troca de componentes e testes de carga.'
   },
   {
@@ -65,7 +66,7 @@ const sampleRecords: ApontamentoRecord[] = [
     criado_em: '2026-01-17 08:30',
     tecnico: 'Fernanda Alves',
     ativo: 'Elevador de Cargas',
-    observacao: 'VerificaÃƒÂ§ÃƒÂ£o do painel elÃƒÂ©trico.'
+    observacao: 'Verifica��o do painel el�trico.'
   }
 ]
 
@@ -110,11 +111,63 @@ export function ProdutividadeApontamentos() {
     })
   }, [filters])
 
+  const sortedRecords = useMemo(() => {
+    return [...filteredRecords].sort((a, b) => {
+      const aDate = new Date(`${a.data}T${a.hr_inicio}:00`)
+      const bDate = new Date(`${b.data}T${b.hr_inicio}:00`)
+      return bDate.getTime() - aDate.getTime()
+    })
+  }, [filteredRecords])
+
+  const [page, setPage] = useState(1)
+  const pageSize = 20
+  const totalPages = Math.max(1, Math.ceil(sortedRecords.length / pageSize))
+  const pagedRecords = useMemo(() => {
+    const start = (page - 1) * pageSize
+    return sortedRecords.slice(start, start + pageSize)
+  }, [page, sortedRecords])
+
+  const pageStart = sortedRecords.length ? (page - 1) * pageSize + 1 : 0
+  const pageEnd = Math.min(page * pageSize, sortedRecords.length)
+
+  const [selectedRecord, setSelectedRecord] = useState<ApontamentoRecord | null>(null)
+  const [modalRecords, setModalRecords] = useState<ApontamentoRecord[]>([])
+  const [modalVisible, setModalVisible] = useState(false)
+
   const handleFilterChange = (field: keyof typeof filterTemplate, value: string) => {
     setFilters(prev => ({
       ...prev,
       [field]: value
     }))
+    setPage(1)
+  }
+
+  const durationToMinutes = (value: string) => {
+    const hoursMatch = value.match(/(\\d+)h/)
+    const minutesMatch = value.match(/(\\d+)m/)
+    const hours = hoursMatch ? Number(hoursMatch[1]) : 0
+    const minutes = minutesMatch ? Number(minutesMatch[1]) : 0
+    return hours * 60 + minutes
+  }
+
+  const handleRowClick = (record: ApontamentoRecord) => {
+    const matches = sortedRecords.filter(
+      item => item.tecnico === record.tecnico && item.data === record.data
+    )
+    setModalRecords(matches)
+    setSelectedRecord(record)
+    setModalVisible(true)
+  }
+
+  const totalMinutes = modalRecords.reduce(
+    (acc, curr) => acc + durationToMinutes(curr.duracao),
+    0
+  )
+
+  const formatMinutes = (minutes: number) => {
+    const hrs = Math.floor(minutes / 60)
+    const mins = minutes % 60
+    return `${hrs}h ${mins}m`
   }
 
   return (
@@ -187,7 +240,7 @@ export function ProdutividadeApontamentos() {
             list="tecnicoOptions"
             value={filters.tecnico}
             onChange={event => handleFilterChange('tecnico', event.target.value)}
-            placeholder="Nome do tÃ©cnico"
+            placeholder="Nome do t�cnico"
             style={{
               borderRadius: 10,
               border: '1px solid #e2e8f0',
@@ -275,14 +328,17 @@ export function ProdutividadeApontamentos() {
           border: '1px solid #e2e8f0',
           background: '#ffffff',
           padding: 16,
-          overflowX: 'auto'
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12
         }}
       >
         <table
           style={{
             width: '100%',
             borderCollapse: 'collapse',
-            minWidth: 1300,
+            minWidth: 960,
+            fontSize: 12,
             color: '#0f172a'
           }}
         >
@@ -291,32 +347,29 @@ export function ProdutividadeApontamentos() {
               style={{
                 textAlign: 'center',
                 textTransform: 'uppercase',
-                fontSize: 11,
+                fontSize: 10,
                 letterSpacing: 0.5,
                 color: '#475569'
               }}
             >
               <th style={{ padding: '10px 8px' }}>Data</th>
-              <th style={{ padding: '10px 8px' }}>Código Apontamento</th>
-              <th style={{ padding: '10px 8px' }}>Hr Início</th>
-              <th style={{ padding: '10px 8px' }}>Hr Fim</th>
+              <th style={{ padding: '10px 8px' }}>C�digo</th>
+              <th style={{ padding: '10px 8px' }}>Início</th>
+              <th style={{ padding: '10px 8px' }}>Fim</th>
               <th style={{ padding: '10px 8px' }}>Duração</th>
-              <th style={{ padding: '10px 8px' }}>Técnico</th>
+              <th style={{ padding: '10px 8px' }}>T�cnico</th>
               <th style={{ padding: '10px 8px' }}>Ativo</th>
-              <th style={{ padding: '10px 8px' }}>ID Ativo</th>
               <th style={{ padding: '10px 8px' }}>OS</th>
               <th style={{ padding: '10px 8px' }}>Observação</th>
-              <th style={{ padding: '10px 8px' }}>ID Company</th>
-              <th style={{ padding: '10px 8px' }}>ID Usuário</th>
               <th style={{ padding: '10px 8px' }}>Criado por</th>
               <th style={{ padding: '10px 8px' }}>Criado em</th>
             </tr>
           </thead>
           <tbody>
-            {filteredRecords.length === 0 && (
+            {pagedRecords.length === 0 && (
               <tr>
                 <td
-                  colSpan={14}
+                  colSpan={11}
                   style={{
                     padding: 20,
                     textAlign: 'center',
@@ -327,13 +380,16 @@ export function ProdutividadeApontamentos() {
                 </td>
               </tr>
             )}
-            {filteredRecords.map(record => (
+            {pagedRecords.map(record => (
               <tr
                 key={`${record.data}-${record.id_codigo}-${record.id_os}`}
                 style={{
                   borderTop: '1px solid #e2e8f0',
-                  background: '#f8fafc'
+                  background: '#f8fafc',
+                  cursor: 'pointer',
+                  transition: 'background 0.2s'
                 }}
+                onClick={() => handleRowClick(record)}
               >
                 <td style={{ padding: '14px 8px', fontWeight: 600 }}>
                   {formatDateDisplay(record.data)}
@@ -388,7 +444,123 @@ export function ProdutividadeApontamentos() {
             ))}
           </tbody>
         </table>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            fontSize: 12,
+            color: '#475569'
+          }}
+        >
+          <span>
+            Mostrando {pageStart || 0}-
+            {pageEnd || 0} de {sortedRecords.length}
+          </span>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <button
+              type="button"
+              onClick={() => setPage(prev => Math.max(1, prev - 1))}
+              disabled={page <= 1}
+              style={{
+                borderRadius: 8,
+                padding: '6px 14px',
+                border: '1px solid #cbd5f5',
+                background: '#ffffff',
+                cursor: page <= 1 ? 'not-allowed' : 'pointer'
+              }}
+            >
+              Anterior
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage(prev => Math.min(totalPages, prev + 1))}
+              disabled={page >= totalPages}
+              style={{
+                borderRadius: 8,
+                padding: '6px 14px',
+                border: '1px solid #cbd5f5',
+                background: '#ffffff',
+                cursor: page >= totalPages ? 'not-allowed' : 'pointer'
+              }}
+            >
+              Próxima
+            </button>
+          </div>
+        </div>
       </section>
+      <Modal
+        title={
+          selectedRecord
+            ? `${selectedRecord.tecnico} • ${formatDateDisplay(selectedRecord.data)}`
+            : 'Apontamentos do dia'
+        }
+        isOpen={modalVisible}
+        onClose={() => setModalVisible(false)}
+        width="min(720px, 100%)"
+      >
+        <p style={{ margin: 0, color: '#475569', fontSize: 13 }}>
+          Total apontado: <strong>{formatMinutes(totalMinutes)}</strong>
+        </p>
+        <div style={{ marginTop: 16, maxHeight: '55vh', overflowY: 'auto' }}>
+          <table
+            style={{
+              width: '100%',
+              borderCollapse: 'collapse',
+              fontSize: 12,
+              color: '#0f172a'
+            }}
+          >
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left', padding: '8px 6px', fontSize: 11, color: '#475569' }}>
+                  C�digo
+                </th>
+                <th style={{ textAlign: 'center', padding: '8px 6px', fontSize: 11, color: '#475569' }}>
+                  Início
+                </th>
+                <th style={{ textAlign: 'center', padding: '8px 6px', fontSize: 11, color: '#475569' }}>
+                  Fim
+                </th>
+                <th style={{ textAlign: 'center', padding: '8px 6px', fontSize: 11, color: '#475569' }}>
+                  Duração
+                </th>
+                <th style={{ textAlign: 'left', padding: '8px 6px', fontSize: 11, color: '#475569' }}>
+                  Observação
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {modalRecords.map(record => (
+                <tr key={`${record.id_codigo}-${record.criado_em}`}>
+                  <td style={{ padding: '10px 6px', borderBottom: '1px solid #e2e8f0' }}>
+                    {record.id_codigo}
+                  </td>
+                  <td style={{ padding: '10px 6px', textAlign: 'center', borderBottom: '1px solid #e2e8f0' }}>
+                    {record.hr_inicio}
+                  </td>
+                  <td style={{ padding: '10px 6px', textAlign: 'center', borderBottom: '1px solid #e2e8f0' }}>
+                    {record.hr_fim}
+                  </td>
+                  <td style={{ padding: '10px 6px', textAlign: 'center', borderBottom: '1px solid #e2e8f0' }}>
+                    {record.duracao}
+                  </td>
+                  <td style={{ padding: '10px 6px', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: 12 }}>
+                    {record.observacao}
+                  </td>
+                </tr>
+              ))}
+              {modalRecords.length === 0 && (
+                <tr>
+                  <td colSpan={5} style={{ padding: 12, textAlign: 'center', color: '#94a3b8' }}>
+                    Nenhum registro adicional encontrado.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Modal>
     </main>
   )
 }
